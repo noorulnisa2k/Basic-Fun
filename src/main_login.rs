@@ -1,192 +1,337 @@
-use std::collections::HashMap;
-// use std::fs::{File, create_dir_all};
-// use std::io::BufReader;
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::sync::Mutex;
-
 use std::env;
-use dotenv::dotenv;
-use reqwest::Client;
-// use serde_json::{Value, json};
+use std::fs;
+use std::path::Path;
 use serde_json::Value;
+use std::time::{Duration, Instant};
 
+use reqwest::blocking::Client;
+use serde::{Deserialize, Serialize};
+use std::error::Error;
 
-const BASE_URL: &str = "https://BFAZWSAP01.corp.basicfun.com:50000";
-// const THREADS: usize = 8;
+#[derive(Serialize)]
+struct LoginRequest {
+    #[serde(rename = "CompanyDB")]
+    company_db: String,
+    #[serde(rename = "UserName")]
+    user_name: String,
+    #[serde(rename = "Password")]
+    password: String,
+}
 
-// ----------------------
-// SESSION STRUCT
-// ----------------------
-#[derive(Clone, Debug)]
-struct Session {
+#[derive(Deserialize, Debug)]
+struct LoginResponse {
+    #[serde(rename = "SessionId")]
     session_id: String,
-    expires_at: u64, // Unix timestamp
-    cookies: HashMap<String, String>,
 }
 
-impl Session {
-    fn is_expired(&self) -> bool {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        now >= self.expires_at
-    }
+#[derive(Deserialize, Debug)]
+struct BPAddressEntry {
+    #[serde(rename = "BusinessPartners/BPAddresses")]
+    bp_addresses: BPAddressFields,
 }
 
-// ----------------------
-// SAP CLIENT STRUCT
-// ----------------------
-#[derive(Clone)]
-struct SapClient {
+#[derive(Deserialize, Debug)]
+struct BPAddressFields {
+    #[serde(rename = "AddressName")]
+    address_name: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct BPAddressResponse {
+    value: Vec<BPAddressEntry>,
+}
+
+#[derive(Debug)]
+struct SapSession {
     client: Client,
-    session: Arc<Mutex<Option<Session>>>,
+    cookies: String,
+    created_at: Instant,
+    expiry_duration: Duration,
 }
 
-impl SapClient {
-    fn new() -> Self {
-        Self {
-            client: Client::builder()
-            .cookie_store(true) // requires "cookie_store" feature in Cargo.toml
-            .build()
-            .unwrap(),
-            session: Arc::new(Mutex::new(None)),
-        }
+impl SapSession {
+    fn is_expired(&self) -> bool {
+        self.created_at.elapsed() >= self.expiry_duration
     }
 
-    // ----------------------
-    // LOGIN FUNCTION
-    // ----------------------
-    async fn login(&self) -> Result<Session, String> {
-        let company_db = std::env::var("CompanyDB").unwrap_or_default();
-        let username = std::env::var("UserName").unwrap_or_default();
-        let password = std::env::var("Password").unwrap_or_default();
-
-        let mut data = HashMap::new();
-        data.insert("CompanyDB".to_string(), company_db);
-        data.insert("UserName".to_string(), username);
-        data.insert("Password".to_string(), password);
-
-        let url = format!("{}/b1s/v1/Login",BASE_URL);
-
-        let resp = self
-            .client
-            .post(url)
-            .json(&data)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-
-        if resp.status().is_success() {
-            // Extract session cookie
-            let mut session_id = String::new();
-            let mut cookies_map = HashMap::new();
-            for cookie in resp.cookies() {
-                if cookie.name() == "B1SESSION" {
-                    session_id = cookie.value().to_string();
-                    cookies_map.insert("B1SESSION".to_string(), session_id.clone());
-                }
-            }
-
-            // Get session timeout
-            let json: Value = resp.json().await.map_err(|e| e.to_string())?;
-            let session_timeout = json["SessionTimeout"].as_u64().unwrap_or(0) * 60;
-
-            let expires_at = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs()
-                + session_timeout;
-
-            Ok(Session {
-                session_id,
-                expires_at,
-                cookies: cookies_map,
-            })
+    fn time_remaining(&self) -> Duration {
+        let elapsed = self.created_at.elapsed();
+        if elapsed >= self.expiry_duration {
+            Duration::ZERO
         } else {
-            let json: Value = resp.json().await.unwrap_or_default();
-            let error_msg = json["error"]["message"]["value"]
-                .as_str()
-                .unwrap_or("Invalid credentials")
-                .to_string();
-            Err(error_msg)
-        }
-    }
-
-    // ----------------------
-    // GET SESSION (auto-login if expired)
-    // ----------------------
-    async fn get_session(&self) -> Result<Session, String> {
-        let mut lock = self.session.lock().await;
-
-        match &*lock {
-            Some(session) if !session.is_expired() => Ok(session.clone()),
-            _ => {
-                // Session missing or expired → login
-                let new_session = self.login().await?;
-                *lock = Some(new_session.clone());
-                Ok(new_session)
-            }
-        }
-    }
-
-    // ----------------------
-    // EXAMPLE API CALL USING SESSION
-    // ----------------------
-    async fn example_call(&self) -> Result<(), String> {
-        let session = self.get_session().await?;
-
-        let url = "https://f08sl.softengineapps.com:50000/b1s/v1/SomeEndpoint";
-
-        let resp = self
-            .client
-            .get(url)
-            .header("Cookie", format!("B1SESSION={}", session.session_id))
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-
-        if resp.status().is_success() {
-            println!("✅ API call successful");
-            Ok(())
-        } else {
-            Err(format!("API call failed: {}", resp.status()))
+            self.expiry_duration - elapsed
         }
     }
 }
 
+fn sap_login() -> Result<SapSession, Box<dyn Error>> {
+    dotenv::dotenv().ok();
 
-// ----------------------
-// MAIN FUNCTION
-// ----------------------
-#[tokio::main]
-async fn main() {
-    dotenv().ok();
+    let base_url = env::var("BASE_URL").expect("BASE_URL must be set");
+    let company = env::var("Company_DB").expect("Company_DB must be set");
+    let username = env::var("User_Name").expect("User_Name must be set");
+    let password = env::var("Password").expect("Password must be set");
 
-    // -------------collect args from console-------------
+    let expiry_minutes: u64 = env::var("SESSION_EXPIRY_MINUTES")
+        .unwrap_or_else(|_| "28".to_string())
+        .parse()
+        .unwrap_or(28);
+
+    let client = Client::builder()
+        .danger_accept_invalid_certs(true)
+        .build()?;
+
+    let url = format!("{}/Login", base_url);
+
+    let payload = LoginRequest {
+        company_db: company,
+        user_name: username,
+        password: password,
+    };
+
+    println!("--- Login Attempt ---");
+    println!("URL: {}", url);
+    println!("Session expiry set to {} minutes", expiry_minutes);
+
+    let response = client.post(&url).json(&payload).send()?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response
+            .text()
+            .unwrap_or_else(|_| "Could not read error body".to_string());
+        return Err(format!("Login failed: {}. Details: {}", status, error_text).into());
+    }
+
+    let cookies = response
+        .headers()
+        .get_all("set-cookie")
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .map(|v| v.split(';').next().unwrap_or("").trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("; ");
+
+    let login_data: LoginResponse = response.json()?;
+    println!("Login successful. SessionId: {}", login_data.session_id);
+    println!("---------------------");
+
+    Ok(SapSession {
+        client,
+        cookies,
+        created_at: Instant::now(),
+        expiry_duration: Duration::from_secs(expiry_minutes * 60),
+    })
+}
+
+fn ensure_session(session: &mut SapSession) -> Result<(), Box<dyn Error>> {
+    if session.is_expired() {
+        println!(
+            "Session expired (age: {:.1}s). Re-authenticating...",
+            session.created_at.elapsed().as_secs_f64()
+        );
+        *session = sap_login()?;
+    } else {
+        println!(
+            "Session valid. ~{:.0}s remaining.",
+            session.time_remaining().as_secs_f64()
+        );
+    }
+    Ok(())
+}
+
+fn get_bp_address(
+    session: &mut SapSession,
+    card_code: &str,
+    gln: &str,
+    card_type: &str,
+) -> Result<Option<String>, Box<dyn Error>> {
+    ensure_session(session)?;
+
+    let base_url = env::var("BASE_URL")?;
+
+    let url = format!(
+        "{}/$crossjoin(BusinessPartners,BusinessPartners/BPAddresses)\
+        ?$expand=BusinessPartners($select=CardType,CardCode),\
+        BusinessPartners/BPAddresses($select=AddressName,AddressType,GlobalLocationNumber)\
+        &$filter=BusinessPartners/CardCode eq BusinessPartners/BPAddresses/BPCode \
+        and BusinessPartners/CardCode eq '{}' \
+        and BusinessPartners/BPAddresses/GlobalLocationNumber eq '{}' \
+        and BusinessPartners/CardType eq '{}' \
+        and BusinessPartners/BPAddresses/AddressType eq 'bo_ShipTo'",
+        base_url, card_code, gln, card_type
+    );
+
+    println!("Request URL:\n{}", url);
+
+    let response = session
+        .client
+        .get(&url)
+        .header("Cookie", &session.cookies)
+        .send()?;
+
+    let response = if response.status() == 401 {
+        println!("Received 401. Re-authenticating and retrying...");
+        *session = sap_login()?;
+
+        let retry = session
+            .client
+            .get(&url)
+            .header("Cookie", &session.cookies)
+            .send()?;
+
+        if !retry.status().is_success() {
+            let status = retry.status();
+            let body = retry.text().unwrap_or_default();
+            return Err(format!("Retry failed after re-auth: {} - {}", status, body).into());
+        }
+        retry
+    } else {
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().unwrap_or_default();
+            return Err(format!("Request failed: {} - {}", status, body).into());
+        }
+        response
+    };
+
+    let parsed: BPAddressResponse = response.json()?;
+
+    let ship_to = parsed
+        .value
+        .into_iter()
+        .next()
+        .map(|entry| entry.bp_addresses.address_name);
+
+    Ok(ship_to)
+}
+
+fn collect_files(dir: &Path) -> Result<Vec<String>, Box<dyn Error>> {
+    if !dir.exists() || !dir.is_dir() {
+        return Err(format!("Invalid directory: {}", dir.display()).into());
+    }
+
+    let files = fs::read_dir(dir)?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file())
+        .map(|path| path.display().to_string())
+        .collect();
+
+    Ok(files)
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();
-    println!("{:?}, lenght: {}", args, args.len());
 
-    let input_dir = &args[1];
-    let output_dir = &args[2];
-    let error_dir = &args[3];
-    println!("{}, {}, {}", input_dir, output_dir, error_dir);
-    // -------------------------------------------
+    if args.len() < 4 {
+        eprintln!(
+            "Usage: {} <input_dir> <output_dir> <error_dir>",
+            args[0]
+        );
+        std::process::exit(1);
+    }
 
-    let sap_client = SapClient::new();
+    let input_dir = Path::new(&args[1]);
+    let output_dir = Path::new(&args[2]);
+    let error_dir = Path::new(&args[3]);
 
-    match sap_client.get_session().await {
-        Ok(session) => {
-            println!("Session ID: {}", session.session_id);
-            println!("Expires at: {}", session.expires_at);
-            println!("Cookies: {:?}", session.cookies);
+    println!("Input:  {}", input_dir.display());
+    println!("Output: {}", output_dir.display());
+    println!("Error:  {}", error_dir.display());
+
+    let files = collect_files(input_dir)?;
+
+    if files.is_empty() {
+        println!("No files found in input directory.");
+        return Ok(());
+    }
+
+    println!("Files found ({}):", files.len());
+    for f in &files {
+        println!("  {}", f);
+    }
+
+    fs::create_dir_all(output_dir)?;
+    fs::create_dir_all(error_dir)?;
+
+    let mut session = sap_login()?;
+
+    for file_path in &files {
+        println!("\nProcessing: {}", file_path);
+
+        let input_path = Path::new(file_path); // ← fixed: was using input_dir instead of file_path
+
+        // --- Read and parse the JSON file ---
+        let file_content = match fs::read_to_string(input_path) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("❌ Failed to read {}: {}", file_path, e);
+                let dest = error_dir.join(input_path.file_name().unwrap());
+                let _ = fs::copy(input_path, &dest);
+                continue;
+            }
+        };
+
+        let mut json: Value = match serde_json::from_str(&file_content) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("❌ Failed to parse JSON in {}: {}", file_path, e);
+                let dest = error_dir.join(input_path.file_name().unwrap());
+                let _ = fs::copy(input_path, &dest);
+                continue;
+            }
+        };
+
+        // --- Extract card_code and gln from the file ---
+        let card_code = match json["card_code"].as_str() {
+            Some(v) => v.to_string(),
+            None => {
+                eprintln!("❌ Missing card_code in {}", file_path);
+                let dest = error_dir.join(input_path.file_name().unwrap());
+                let _ = fs::copy(input_path, &dest);
+                continue;
+            }
+        };
+
+        let gln = match json["gln"].as_str() {
+            Some(v) => v.to_string(),
+            None => {
+                eprintln!("❌ Missing gln in {}", file_path);
+                let dest = error_dir.join(input_path.file_name().unwrap());
+                let _ = fs::copy(input_path, &dest);
+                continue;
+            }
+        };
+
+        // --- Call SAP B1 API ---
+        match get_bp_address(&mut session, &card_code, &gln, "cCustomer") {
+            Ok(Some(ship_to)) => {
+                println!("✅ ShipTo AddressName: {}", ship_to);
+
+                // Update ship_to in JSON and write to output
+                json["ship_to"] = Value::String(ship_to);
+
+                let file_name = input_path.file_name().ok_or("Invalid file name")?;
+                let output_path = output_dir.join(file_name);
+
+                fs::write(&output_path, serde_json::to_string_pretty(&json)?)?;
+                println!("✅ Written to: {}", output_path.display());
+            }
+            Ok(None) => {
+                eprintln!("⚠️  No ShipTo address found for card_code={} gln={}", card_code, gln);
+                let dest = error_dir.join(input_path.file_name().unwrap());
+                let _ = fs::copy(input_path, &dest);
+            }
+            Err(e) => {
+                eprintln!("❌ API error for {}: {}", file_path, e);
+                let dest = error_dir.join(input_path.file_name().unwrap());
+                let _ = fs::copy(input_path, &dest);
+            }
         }
-        Err(err) => println!("Login failed: {}", err),
     }
 
-    // Example call
-    if let Err(err) = sap_client.example_call().await {
-        println!("{}", err);
-    }
+    println!("\n✅ All files processed.");
+    Ok(())
 }
