@@ -1,198 +1,295 @@
-use std::collections::HashMap;
-use std::fs::{File, create_dir_all};
-use std::io::BufReader;
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::sync::Mutex;
+// mod order_structure_test;
 
-use dotenv::dotenv;
+// use dotenv::dotenv;
+// use std::env;
+
+// // use std::fmt::format;
+// use log::{info, warn, error, debug};
+// use std::path::Path;
+// use std::fs;
+// use order_structure_test::Orders;
+
+// fn main() {
+
+//     dotenv().ok(); // 👈 load .env file
+
+//     let api_url = env::var("API_URL").expect("API_URL not set");
+//     let api_key = env::var("API_KEY").expect("API_KEY not set");
+
+//     println!("URL: {}", api_url);
+//     println!("Key: {}", api_key);
+
+//     println!("---------------");
+
+//     let args: Vec<String> = env::args().collect();
+//     println!("{:?}, lenght: {}", args, args.len());
+
+//     let input_dir = &args[1];
+//     let output_dir = &args[2];
+//     println!("{}, {}", input_dir, output_dir);
+
+
+//     for file in fs::read_dir(input_dir).expect("Failed to read input dir"){
+//         let file = file.expect("Failed to get the files");
+//         let file_path = file.path();
+
+//         if file_path.is_dir(){
+//             continue;
+//         }
+        
+//         let data = fs::read_to_string(&file_path)
+//             .expect("Failed to read file");
+
+//         let order: Orders = serde_json::from_str(&data)
+//             .expect("Invalid JSON");
+
+//         let new_name = format!("{}.json", order.card_code);
+
+//         let output_path = Path::new(output_dir).join(new_name);
+
+//         let output_json = serde_json::to_string_pretty(&order).unwrap();
+
+//         fs::write(output_path, output_json)
+//         .expect("Failed to write the file");
+
+//     }
+
+//     env_logger::init();
+
+//     info!("this is a infor msg");
+//     warn!("this is a warn msg");
+//     debug!("this is a debug msg");
+//     error!("this is a error message");
+    
+
+    
+//     // println!("{:#?}", order);
+// }
+
+
+// use reqwest::blocking::Client;
+// use serde_json::json;
+
+// fn main() {
+//     let client = Client::new();
+
+//     let res = client
+//         .post("https://fakestoreapi.com/users")
+//         .json(&json!({
+//             "title": "hello",
+//             "body": "world",
+//             "userId": 1
+//         }))
+//         .send()
+//         .unwrap();
+
+//     println!("{}", res.text().unwrap());
+
+//     }
+
+
+// -----------------------------------------
+
+// use reqwest::Client;
+// use serde::{Deserialize, Serialize};
+
+// const BASE_URL: &str = "http://127.0.0.1:8000";
+// const TOKEN: &str = "mysecrettoken";
+
+// #[derive(Serialize, Deserialize, Debug)]
+// struct Order {
+//     id: i32,
+//     item: String,
+//     quantity: i32,
+//     price: f64,
+// }
+
+// // -----------------------------
+// // POST - Create Order
+// // -----------------------------
+// async fn create_order(client: &Client) -> Result<(), reqwest::Error> {
+//     let order = Order {
+//         id: 3,
+//         item: "Laptop".to_string(),
+//         quantity: 2,
+//         price: 1200.0,
+//     };
+
+//     let res = client
+//         .post(&format!("{}/orders", BASE_URL))
+//         .bearer_auth(TOKEN)
+//         .json(&order)
+//         .send()
+//         .await?;
+
+//     let body = res.text().await?;
+//     println!("POST Response: {}", body);
+
+//     Ok(())
+// }
+
+// // -----------------------------
+// // GET - Fetch Order
+// // -----------------------------
+// async fn get_order(client: &Client) -> Result<(), reqwest::Error> {
+//     let res = client
+//         .get(&format!("{}/orders/1", BASE_URL))
+//         .bearer_auth(TOKEN)
+//         .send()
+//         .await?;
+
+//     let body = res.text().await?;
+//     println!("GET Response: {}", body);
+
+//     Ok(())
+// }
+
+// // -----------------------------
+// // PUT - Update Order
+// // -----------------------------
+// async fn update_order(client: &Client) -> Result<(), reqwest::Error> {
+//     let updated_order = Order {
+//         id: 1,
+//         item: "Updated Laptop".to_string(),
+//         quantity: 5,
+//         price: 1500.0,
+//     };
+
+//     let res = client
+//         .put(&format!("{}/orders/1", BASE_URL))
+//         .bearer_auth(TOKEN)
+//         .json(&updated_order)
+//         .send()
+//         .await?;
+
+//     let body = res.text().await?;
+//     println!("PUT Response: {}", body);
+
+//     Ok(())
+// }
+
+// // -----------------------------
+// // MAIN
+// // -----------------------------
+// #[tokio::main]
+// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//     let client = Client::new();
+
+//     // 1. Create
+//     create_order(&client).await?;
+
+//     // 2. Get
+//     get_order(&client).await?;
+
+//     // 3. Update
+//     update_order(&client).await?;
+
+//     // 4. Get again
+//     get_order(&client).await?;
+
+//     Ok(())
+// }
+
+// -----------------------------------
 use reqwest::Client;
-use serde_json::{Value, json};
+use serde::{Deserialize, Serialize};
+use futures::stream::{self, StreamExt};
 
-// ----------------------
-// SESSION STRUCT
-// ----------------------
-#[derive(Clone, Debug)]
-struct Session {
-    session_id: String,
-    expires_at: u64,
-    cookies: HashMap<String, String>,
+const BASE_URL: &str = "http://127.0.0.1:8000";
+const TOKEN: &str = "mysecrettoken";
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Order {
+    id: i32,
+    item: String,
+    quantity: i32,
+    price: f64,
 }
 
-impl Session {
-    fn is_expired(&self) -> bool {
-        let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-        now >= self.expires_at
-    }
-}
-
-// ----------------------
-// SAP CLIENT
-// ----------------------
-#[derive(Clone)]
-struct SapClient {
-    client: Client,
-    session: Arc<Mutex<Option<Session>>>,
-}
-
-impl SapClient {
-    fn new() -> Self {
-        Self {
-            client: Client::builder()
-                .cookie_store(true)
-                .build()
-                .unwrap(),
-            session: Arc::new(Mutex::new(None)),
-        }
-    }
-
-    async fn login(&self) -> Result<Session, String> {
-        let company_db = std::env::var("CompanyDB").unwrap_or_default();
-        let username = std::env::var("UserName").unwrap_or_default();
-        let password = std::env::var("Password").unwrap_or_default();
-
-        let mut data = HashMap::new();
-        data.insert("CompanyDB".to_string(), company_db);
-        data.insert("UserName".to_string(), username);
-        data.insert("Password".to_string(), password);
-
-        let url = "https://f08sl.softengineapps.com:50000/b1s/v1/Login";
-
-        let resp = self
-        .client
-        .post(url)
-        .json(&data)
+// -----------------------------
+// GET single order
+// -----------------------------
+async fn get_order(client: &Client, id: i32) {
+    let res = client
+        .get(&format!("{}/orders/{}", BASE_URL, id))
+        .bearer_auth(TOKEN)
         .send()
-        .await
-        .map_err(|e| e.to_string())?;
+        .await;
 
-        if resp.status().is_success() {
-            let mut session_id = String::new();
-            let mut cookies_map = HashMap::new();
-
-            for cookie in resp.cookies() {
-                let name = cookie.name().to_string();
-                let value = cookie.value().to_string();
-                cookies_map.insert(name.clone(), value.clone());
-                if name == "B1SESSION" {
-                    session_id = value;
-                }
-            }
-
-            let json: Value = resp.json().await.map_err(|e| e.to_string())?;
-            let session_timeout = json["SessionTimeout"].as_u64().unwrap_or(0) * 60;
-            let expires_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() + session_timeout;
-
-            Ok(Session { session_id, expires_at, cookies: cookies_map })
-        } else {
-            let json: Value = resp.json().await.unwrap_or_default();
-            let error_msg = json["error"]["message"]["value"].as_str().unwrap_or("Invalid credentials").to_string();
-            Err(error_msg)
+    match res {
+        Ok(resp) => {
+            let text = resp.text().await.unwrap_or("Failed to read".to_string());
+            println!("GET {} → {}", id, text);
         }
-    }
-
-    async fn get_session(&self) -> Result<Session, String> {
-        let mut lock = self.session.lock().await;
-        match &*lock {
-            Some(session) if !session.is_expired() => Ok(session.clone()),
-            _ => {
-                let new_session = self.login().await?;
-                *lock = Some(new_session.clone());
-                Ok(new_session)
-            }
-        }
-    }
-
-    // ----------------------
-    // Get ShipTo field
-    // ----------------------
-    pub async fn get_shipto(&self, card_type: &str, gln: &str, card_code: &str) -> Result<String, String> {
-        let session = self.get_session().await?;
-
-        let url = format!(
-            "https://f08sl.softengineapps.com:50000/b1s/v1/$crossjoin(BusinessPartners,BusinessPartners/BPAddresses)?\
-            $expand=BusinessPartners($select=CardType,CardCode),\
-            BusinessPartners/BPAddresses($select=AddressName,AddressType,GlobalLocationNumber)&\
-            $filter=BusinessPartners/CardCode eq BusinessPartners/BPAddresses/BPCode \
-            and BusinessPartners/CardCode eq '{}' \
-            and BusinessPartners/BPAddresses/GlobalLocationNumber eq '{}' \
-            and BusinessPartners/CardType eq '{}' \
-            and BusinessPartners/BPAddresses/AddressType eq 'bo_ShipTo' &$top=1",
-            card_code, gln, card_type
-        );
-
-        let resp = self.client
-            .get(&url)
-            .header("Cookie", format!("B1SESSION={}", session.session_id))
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-
-        if resp.status().is_success() {
-            let json: Value = resp.json().await.map_err(|e| e.to_string())?;
-            if let Some(values) = json.get("value").and_then(|v| v.as_array()) {
-                if !values.is_empty() {
-                    if let Some(address) = values[0].get("BusinessPartners/BPAddresses").and_then(|v| v.get("AddressName")).and_then(|v| v.as_str()) {
-                        return Ok(address.to_string());
-                    }
-                }
-            }
-            Ok("".to_string())
-        } else {
-            Err(format!("SAP request failed: {}", resp.status()))
+        Err(e) => {
+            println!("ERROR {} → {}", id, e);
         }
     }
 }
 
-// ----------------------
-// PROCESS JSON INPUT/OUTPUT
-// ----------------------
-async fn process_json(input_path: &str, output_path: &str, sap_client: &SapClient) -> Result<(), Box<dyn std::error::Error>> {
-    // Ensure output folder exists
-    if let Some(parent) = std::path::Path::new(output_path).parent() {
-        create_dir_all(parent)?;
-    }
+// -----------------------------
+// POST single order
+// -----------------------------
+async fn create_order(client: &Client, order: Order) {
+    let res = client
+        .post(&format!("{}/orders", BASE_URL))
+        .bearer_auth(TOKEN)
+        .json(&order)
+        .send()
+        .await;
 
-    // Load JSON file
-    let file = File::open(input_path)?;
-    let reader = BufReader::new(file);
-    let mut data: Value = serde_json::from_reader(reader)?;
-
-    if let Some(array) = data.as_array_mut() {
-        for obj in array.iter_mut() {
-            let card_type = obj.get("CardType").and_then(|v| v.as_str()).unwrap_or("");
-            let gln = obj.get("GlobalLocationNumber").and_then(|v| v.as_str()).unwrap_or("");
-            let card_code = obj.get("CardCode").and_then(|v| v.as_str()).unwrap_or("");
-
-            let shipto = sap_client.get_shipto(card_type, gln, card_code).await.unwrap_or_default();
-            obj["ShipTo"] = json!(shipto);
+    match res {
+        Ok(resp) => {
+            let text = resp.text().await.unwrap_or("Failed to read".to_string());
+            println!("POST {} → {}", order.id, text);
+        }
+        Err(e) => {
+            println!("ERROR POST {} → {}", order.id, e);
         }
     }
-
-    // Write updated JSON
-    let mut output_file = File::create(output_path)?;
-    serde_json::to_writer_pretty(&mut output_file, &data)?;
-
-    Ok(())
 }
 
-// ----------------------
-// MAIN
-// ----------------------
+// -----------------------------
+// MAIN (parallel with limit)
+// -----------------------------
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    dotenv().ok();
-    let sap_client = SapClient::new();
+async fn main() {
+    let client = Client::new();
 
-    process_json(
-        "input/input.json",
-        "output/output.json",
-        &sap_client
-    ).await?;
+    // -----------------------------
+    // 1. CREATE multiple orders
+    // -----------------------------
+    let orders = vec![
+        Order { id: 1, item: "Laptop".into(), quantity: 1, price: 1000.0 },
+        Order { id: 2, item: "Phone".into(), quantity: 2, price: 500.0 },
+        Order { id: 3, item: "Tablet".into(), quantity: 3, price: 300.0 },
+        Order { id: 4, item: "Mouse".into(), quantity: 5, price: 50.0 },
+    ];
 
-    println!("✅ JSON processing completed successfully!");
-    Ok(())
+    stream::iter(orders)
+        .for_each_concurrent(2, |order| {
+            let client = &client;
+            async move {
+                create_order(client, order).await;
+            }
+        })
+        .await;
+
+    println!("--- All orders created ---");
+
+    // -----------------------------
+    // 2. FETCH multiple orders
+    // -----------------------------
+    let ids = vec![1, 2, 3, 4];
+
+    stream::iter(ids)
+        .for_each_concurrent(2, |id| {
+            let client = &client;
+            async move {
+                get_order(client, id).await;
+            }
+        })
+        .await;
+
+    println!("--- All orders fetched ---");
 }
