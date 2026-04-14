@@ -1,3 +1,4 @@
+mod order_structure_test;
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -7,6 +8,8 @@ use std::time::{Duration, Instant};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
+
+use order_structure_test::Orders;
 
 #[derive(Serialize)]
 struct LoginRequest {
@@ -39,6 +42,14 @@ struct BPAddressFields {
 #[derive(Deserialize, Debug)]
 struct BPAddressResponse {
     value: Vec<BPAddressEntry>,
+}
+
+#[derive(Deserialize, Debug)]
+struct CreateOrderResponse {
+    #[serde(rename = "DocNum")]
+    doc_num: i64,
+    #[serde(rename = "DocEntry")]
+    doc_entry: i64,
 }
 
 #[derive(Debug)]
@@ -91,15 +102,19 @@ fn sap_login() -> Result<SapSession, Box<dyn Error>> {
 
     println!("--- Login Attempt ---");
     println!("URL: {}", url);
+    match serde_json::to_string_pretty(&payload) {
+        Ok(json) => println!("Body:\n{}", json),
+        Err(e) => println!("Failed to serialize payload: {}", e),
+    }
     println!("Session expiry set to {} minutes", expiry_minutes);
+    println!("------------------");
 
     let response = client.post(&url).json(&payload).send()?;
 
     if !response.status().is_success() {
         let status = response.status();
-        let error_text = response
-            .text()
-            .unwrap_or_else(|_| "Could not read error body".to_string());
+        let error_text = response.text().unwrap_or_else(|_| "Could not read error body".to_string());
+
         return Err(format!("Login failed: {}. Details: {}", status, error_text).into());
     }
 
@@ -142,9 +157,9 @@ fn ensure_session(session: &mut SapSession) -> Result<(), Box<dyn Error>> {
 }
 
 fn get_bp_address(
-    session: &mut SapSession,
+    session:   &mut SapSession,
     card_code: &str,
-    gln: &str,
+    gln:       &str,
     card_type: &str,
 ) -> Result<Option<String>, Box<dyn Error>> {
     ensure_session(session)?;
@@ -207,6 +222,61 @@ fn get_bp_address(
     Ok(ship_to)
 }
 
+fn create_order(
+    session: &mut SapSession,
+    order: &Orders,
+) -> Result<CreateOrderResponse, Box<dyn Error>> {
+    ensure_session(session)?;
+
+    let base_url = env::var("BASE_URL")?;
+    let url = format!("{}/Orders", base_url);
+
+    println!("--- Creating Order ---");
+    println!("URL: {}", url);
+    println!("Payload:\n{}", serde_json::to_string_pretty(&order)?);
+
+    let response = session
+        .client
+        .post(&url)
+        .header("Cookie", &session.cookies)
+        .json(&order)
+        .send()?;
+
+    let response = if response.status() == 401 {
+        println!("Received 401. Re-authenticating...");
+        *session = sap_login()?;
+
+        let retry = session
+            .client
+            .post(&url)
+            .header("Cookie", &session.cookies)
+            .json(&order)
+            .send()?;
+
+        if !retry.status().is_success() {
+            let status = retry.status();
+            let body = retry.text().unwrap_or_default();
+            return Err(format!("Order creation failed after re-auth: {} - {}", status, body).into());
+        }
+        retry
+    } else {
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().unwrap_or_default();
+            return Err(format!("Order creation failed: {} - {}", status, body).into());
+        }
+        response
+    };
+
+    let created: CreateOrderResponse = response.json()?;
+    println!(
+        "✅ Order created — DocNum: {}, DocEntry: {}",
+        created.doc_num, created.doc_entry
+    );
+
+    Ok(created)
+}
+
 fn collect_files(dir: &Path) -> Result<Vec<String>, Box<dyn Error>> {
     if !dir.exists() || !dir.is_dir() {
         return Err(format!("Invalid directory: {}", dir.display()).into());
@@ -226,10 +296,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 4 {
-        eprintln!(
-            "Usage: {} <input_dir> <output_dir> <error_dir>",
-            args[0]
-        );
+        eprintln!("Usage: {} <input_dir> <output_dir> <error_dir>", args[0]);
         std::process::exit(1);
     }
 
@@ -253,84 +320,87 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("  {}", f);
     }
 
-    fs::create_dir_all(output_dir)?;
-    fs::create_dir_all(error_dir)?;
-
     let mut session = sap_login()?;
 
     for file_path in &files {
         println!("\nProcessing: {}", file_path);
 
-        let input_path = Path::new(file_path); // ← fixed: was using input_dir instead of file_path
+        let input_path = Path::new(file_path);
 
         // --- Read and parse the JSON file ---
         let file_content = match fs::read_to_string(input_path) {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("❌ Failed to read {}: {}", file_path, e);
-                let dest = error_dir.join(input_path.file_name().unwrap());
-                let _ = fs::copy(input_path, &dest);
+                eprintln!("Failed to read {}: {}", file_path, e);
+                let _ = fs::copy(input_path, error_dir.join(input_path.file_name().unwrap()));
                 continue;
             }
         };
 
-        let mut json: Value = match serde_json::from_str(&file_content) {
-            Ok(v) => v,
+        // --- Deserialize into Orders struct ---
+        // FIX 1: Orders is a typed struct — index with [] was wrong,
+        //         access fields directly via .field_name
+        let mut order: Orders = match serde_json::from_str(&file_content) {
+            Ok(o)  => o,
             Err(e) => {
-                eprintln!("❌ Failed to parse JSON in {}: {}", file_path, e);
-                let dest = error_dir.join(input_path.file_name().unwrap());
-                let _ = fs::copy(input_path, &dest);
+                eprintln!("Failed to parse JSON in {}: {}", file_path, e);
+                let _ = fs::copy(input_path, error_dir.join(input_path.file_name().unwrap()));
                 continue;
             }
         };
 
-        // --- Extract card_code and gln from the file ---
-        let card_code = match json["card_code"].as_str() {
-            Some(v) => v.to_string(),
+        // FIX 2: Access ShipToCode via struct field, not JSON indexing
+        //         ship_to_code is Option<String> so clone the inner value
+        let gln = match order.ship_to_code.clone() {
+            Some(code) => code,
             None => {
-                eprintln!("❌ Missing card_code in {}", file_path);
-                let dest = error_dir.join(input_path.file_name().unwrap());
-                let _ = fs::copy(input_path, &dest);
+                eprintln!("❌ Missing ShipToCode in {}", file_path);
+                let _ = fs::copy(input_path, error_dir.join(input_path.file_name().unwrap()));
                 continue;
             }
         };
 
-        let gln = match json["gln"].as_str() {
-            Some(v) => v.to_string(),
-            None => {
-                eprintln!("❌ Missing gln in {}", file_path);
-                let dest = error_dir.join(input_path.file_name().unwrap());
-                let _ = fs::copy(input_path, &dest);
+        // FIX 3: get_bp_address now takes card_code, gln, card_type as separate args
+        //         (removed the comma-separated string hack)
+        let ship_to_name = match get_bp_address(&mut session, &order.card_code, &gln, "cCustomer") {
+            Ok(Some(name)) => name,
+            Ok(None) => {
+                eprintln!("⚠️  No ShipTo found for CardCode={} GLN={}", order.card_code, gln);
+                let _ = fs::copy(input_path, error_dir.join(input_path.file_name().unwrap()));
+                continue;
+            }
+            Err(e) => {
+                eprintln!("❌ BP address lookup failed for {}: {}", file_path, e);
+                let _ = fs::copy(input_path, error_dir.join(input_path.file_name().unwrap()));
                 continue;
             }
         };
 
-        // --- Call SAP B1 API ---
-        match get_bp_address(&mut session, &card_code, &gln, "cCustomer") {
-            Ok(Some(ship_to)) => {
-                println!("✅ ShipTo AddressName: {}", ship_to);
+        // FIX 4: Update ShipToCode on the struct field directly
+        println!("✅ ShipTo resolved: {}", ship_to_name);
+        order.ship_to_code = Some(ship_to_name);
 
-                // Update ship_to in JSON and write to output
-                json["ship_to"] = Value::String(ship_to);
+        // FIX 5: create_order and output writing were outside the for loop
+        //         due to mismatched braces — moved inside correctly
+        match create_order(&mut session, &order) {
+            Ok(created) => {
+                // Serialize struct back to Value, then inject SAP response fields
+                let mut output = serde_json::to_value(&order)?;
+                output["sap_doc_num"]   = Value::Number(created.doc_num.into());
+                output["sap_doc_entry"] = Value::Number(created.doc_entry.into());
 
-                let file_name = input_path.file_name().ok_or("Invalid file name")?;
+                let file_name   = input_path.file_name().ok_or("Invalid file name")?;
                 let output_path = output_dir.join(file_name);
 
-                fs::write(&output_path, serde_json::to_string_pretty(&json)?)?;
+                fs::write(&output_path, serde_json::to_string_pretty(&output)?)?;
                 println!("✅ Written to: {}", output_path.display());
             }
-            Ok(None) => {
-                eprintln!("⚠️  No ShipTo address found for card_code={} gln={}", card_code, gln);
-                let dest = error_dir.join(input_path.file_name().unwrap());
-                let _ = fs::copy(input_path, &dest);
-            }
             Err(e) => {
-                eprintln!("❌ API error for {}: {}", file_path, e);
-                let dest = error_dir.join(input_path.file_name().unwrap());
-                let _ = fs::copy(input_path, &dest);
+                eprintln!("❌ Order creation failed for {}: {}", file_path, e);
+                let _ = fs::copy(input_path, error_dir.join(input_path.file_name().unwrap()));
             }
         }
-    }
+    }   // ← end of for loop
 
     println!("\n✅ All files processed.");
     Ok(())
