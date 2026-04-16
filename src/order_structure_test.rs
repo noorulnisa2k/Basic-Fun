@@ -31,6 +31,9 @@ pub struct Orders {
     #[serde(rename = "ShipToCode")]
     pub ship_to_code: Option<String>,
 
+    #[serde(rename = "PayToCode")]
+    pub pay_to_code: Option<String>,
+
     #[serde(rename = "BPL_IDAssignedToInvoice")]
     pub bpl_assigned_to_invoice: Option<i32>,
 

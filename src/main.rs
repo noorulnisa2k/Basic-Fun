@@ -168,7 +168,7 @@ fn ensure_session(session: &mut SapSession) -> Result<(), Box<dyn Error>> {
 
 fn get_bp_address(
     session: &mut SapSession,
-    data: &str,
+    data: &str, a_type: &str,
 ) -> Result<Option<String>, Box<dyn Error>> {
     // Proactively refresh if expired before making the call
     ensure_session(session)?;
@@ -186,8 +186,8 @@ fn get_bp_address(
         and BusinessPartners/CardCode eq '{}' \
         and BusinessPartners/BPAddresses/GlobalLocationNumber eq '{}' \
         and BusinessPartners/CardType eq '{}' \
-        and BusinessPartners/BPAddresses/AddressType eq 'S'",
-        base_url, parts[3], parts[1], parts[0]
+        and BusinessPartners/BPAddresses/AddressType eq '{}'",
+        base_url, parts[3], parts[1], parts[0], a_type
     );
 
     println!("Request URL:\n{}", url);
@@ -369,7 +369,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         // because ship_to_cod is optional currently
         if let Some(ship_to_value) = &order_json.ship_to_code {
-            match get_bp_address(&mut session, ship_to_value) {
+            match get_bp_address(&mut session, ship_to_value, "S") {
                 Ok(Some(address)) => {
                     println!("ShipTo AddressName: {}", address);
                     order_json.ship_to_code = Some(address);
@@ -382,6 +382,31 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
                 Ok(None) => {
                     eprintln!("No ShipTo address found for ShipToCode: {}", ship_to_value);
+                    let dest = error_dir.join(input_path.file_name().unwrap());
+                    let _ = fs::copy(input_path, &dest);
+                }
+                Err(e) => {
+                    eprintln!("API error for {}: {}", file_path, e);
+                    let dest = error_dir.join(input_path.file_name().unwrap());
+                    let _ = fs::copy(input_path, &dest);
+                }
+            }
+        }
+
+        if let Some(pay_to_value) = &order_json.pay_to_code {
+            match get_bp_address(&mut session, pay_to_value, "B") {
+                Ok(Some(address)) => {
+                    println!("PayTo AddressName: {}", address);
+                    order_json.pay_to_code = Some(address);
+
+                    let file_name = input_path.file_name().ok_or("Invalid file name")?;
+                    let output_path = output_dir.join(file_name);
+
+                    fs::write(&output_path, serde_json::to_string_pretty(&order_json)?)?;
+                    println!("Written to: {}", output_path.display());
+                }
+                Ok(None) => {
+                    eprintln!("No PayTo address found for PayToCode: {}", pay_to_value);
                     let dest = error_dir.join(input_path.file_name().unwrap());
                     let _ = fs::copy(input_path, &dest);
                 }
