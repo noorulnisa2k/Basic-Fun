@@ -8,22 +8,22 @@ pub struct Orders {
     // pub doc_entry: Option<usize>,   // ✅
 
     #[serde(rename = "DocDate")]
-    pub doc_date: String,          // ✅ exists in JSON
+    pub doc_date: String,
 
     #[serde(rename = "DocDueDate")]
-    pub doc_due_date: String,          // ✅ exists in JSON
+    pub doc_due_date: String,
 
     #[serde(rename = "CardCode")]
-    pub card_code: String,          // ✅ exists in JSON
+    pub card_code: String,
 
     // #[serde(rename = "CardName")]
-    // pub card_name: Option<String>,  // ✅
+    // pub card_name: Option<String>,
 
     #[serde(rename = "NumAtCard")]
     pub num_at_card: Option<String>,
 
     #[serde(rename = "Series")]
-    pub series: Option<i32>,    // ✅
+    pub series: Option<i32>,
 
     #[serde(rename = "TaxDate")]
     pub tax_date: Option<String>,
@@ -58,8 +58,17 @@ pub struct Orders {
     // #[serde(rename = "U_BillingType")]
     // pub u_billing_type: Option<String>,
 
-    // #[serde(rename = "TransportationCode")]
-    // pub u_transportation_code: Option<i64>,
+    #[serde(rename = "TransportationCode")]
+    pub u_transportation_code: Option<i64>,
+    
+    #[serde(rename = "TrnspCode")]
+    pub trnsp_code: Option<String>,
+
+    #[serde(rename = "DocCurrency")]
+    pub doc_currency: Option<String>,
+
+    #[serde(rename = "U_U_WSO")]
+    pub u_u_wso: Option<String>,
 }
 
 
@@ -98,6 +107,9 @@ pub struct DocumentLine {
     #[serde(rename = "LineNum")]
     pub line_num: Option<usize>,
 
+    #[serde(rename = "ShipDate")]
+    pub ship_date: Option<String>,
+
     #[serde(rename = "ItemCode")]
     pub item_code: Option<String>,
 
@@ -112,4 +124,22 @@ pub struct DocumentLine {
 
     #[serde(rename = "UnitPrice")]
     pub unit_price: Option<f64>,
+
+    #[serde(rename = "Price")]
+    pub price: Option<f64>,
+
+    #[serde(rename = "TaxCode")]
+    pub tax_code: Option<f64>,
+
+    #[serde(rename = "U_ACW_DeliveryFrom")]
+    pub u_acw_delivery_from: Option<f64>,
+
+    #[serde(rename = "U_ACW_DeliveryEnd")]
+    pub u_acw_delivery_end: Option<f64>,
+
+    #[serde(rename = "U_TBD_Cust_No")]
+    pub u_tbd_cust_no: Option<f64>,
+
+    #[serde(rename = "SupplierCatNum")]
+    pub supplier_cat_num: Option<f64>,
 }
