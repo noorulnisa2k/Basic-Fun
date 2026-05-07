@@ -129,17 +129,17 @@ pub struct DocumentLine {
     pub price: Option<f64>,
 
     #[serde(rename = "TaxCode")]
-    pub tax_code: Option<f64>,
+    pub tax_code: Option<String>,
 
     #[serde(rename = "U_ACW_DeliveryFrom")]
-    pub u_acw_delivery_from: Option<f64>,
+    pub u_acw_delivery_from: Option<String>,
 
     #[serde(rename = "U_ACW_DeliveryEnd")]
-    pub u_acw_delivery_end: Option<f64>,
+    pub u_acw_delivery_end: Option<String>,
 
     #[serde(rename = "U_TBD_Cust_No")]
-    pub u_tbd_cust_no: Option<f64>,
+    pub u_tbd_cust_no: Option<String>,
 
     #[serde(rename = "SupplierCatNum")]
-    pub supplier_cat_num: Option<f64>,
+    pub supplier_cat_num: Option<String>,
 }
