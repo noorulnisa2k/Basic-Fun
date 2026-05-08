@@ -55,20 +55,35 @@ pub struct Orders {
     #[serde(rename = "AddressExtension")]
     pub address_extension: Option<AddressExtension>,
 
-    // #[serde(rename = "U_BillingType")]
-    // pub u_billing_type: Option<String>,
+    #[serde(rename = "U_BillingType")]
+    pub u_billing_type: Option<String>,
 
     #[serde(rename = "TransportationCode")]
     pub u_transportation_code: Option<i64>,
     
     #[serde(rename = "TrnspCode")]
-    pub trnsp_code: Option<String>,
+    pub trnsp_code: Option<i64>,
 
     #[serde(rename = "DocCurrency")]
     pub doc_currency: Option<String>,
 
     #[serde(rename = "U_U_WSO")]
     pub u_u_wso: Option<String>,
+
+    #[serde(rename = "ShipFrom")]
+    pub ship_from: Option<String>,
+
+    #[serde(rename = "TotalDiscount")]
+    pub total_discount: Option<f64>,
+
+     #[serde(rename = "DiscountPercentage")]
+    pub discount_percentage: Option<i64>,
+
+    #[serde(rename = "ExtraDays")]
+    pub extra_days: Option<i64>,
+
+    #[serde(rename = "U_U_Department")]
+    pub u_u_department: Option<i64>,
 }
 
 
@@ -100,6 +115,24 @@ pub struct AddressExtension {
 
     #[serde(rename = "ShipToCountry")]
     pub ship_to_country: Option<String>,
+
+    #[serde(rename = "BillToStreet")]
+    pub bill_to_street: Option<String>,
+
+    #[serde(rename = "BillToBlock")]
+    pub bill_to_block: Option<String>,
+
+    #[serde(rename = "BillToCity")]
+    pub bill_to_city: Option<String>,
+
+    #[serde(rename = "BillToZipCode")]
+    pub bill_to_zip_code: Option<String>,
+
+    #[serde(rename = "BillToState")]
+    pub bill_to_state: Option<String>,
+
+    #[serde(rename = "CountryB")]
+    pub country_b: Option<String>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -123,7 +156,7 @@ pub struct DocumentLine {
     pub warehouse_code: Option<String>,
 
     #[serde(rename = "UnitPrice")]
-    pub unit_price: Option<f64>,
+    pub unit_price: Option<i64>,
 
     #[serde(rename = "Price")]
     pub price: Option<f64>,
@@ -142,4 +175,10 @@ pub struct DocumentLine {
 
     #[serde(rename = "SupplierCatNum")]
     pub supplier_cat_num: Option<String>,
+
+    #[serde(rename = "U_TBD_Cust_Dept_No")]
+    pub u_tbd_cust_dept_no: Option<i64>,
+
+    #[serde(rename = "U_TBD_SO_Ref")]
+    pub u_tbd_so_ref: Option<String>,
 }
