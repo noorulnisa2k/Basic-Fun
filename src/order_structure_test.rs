@@ -19,166 +19,166 @@ pub struct Orders {
     // #[serde(rename = "CardName")]
     // pub card_name: Option<String>,
 
-    #[serde(rename = "NumAtCard")]
+    #[serde(rename = "NumAtCard", skip_serializing_if = "Option::is_none")]
     pub num_at_card: Option<String>,
 
-    #[serde(rename = "Series")]
+    #[serde(rename = "Series", skip_serializing_if = "Option::is_none")]
     pub series: Option<i32>,
 
-    #[serde(rename = "TaxDate")]
+    #[serde(rename = "TaxDate", skip_serializing_if = "Option::is_none")]
     pub tax_date: Option<String>,
 
-    #[serde(rename = "ShipToCode")]
+    #[serde(rename = "ShipToCode", skip_serializing_if = "Option::is_none")]
     pub ship_to_code: Option<String>,
 
-    #[serde(rename = "PayToCode")]
+    #[serde(rename = "PayToCode", skip_serializing_if = "Option::is_none")]
     pub pay_to_code: Option<String>,
 
-    #[serde(rename = "BPL_IDAssignedToInvoice")]
+    #[serde(rename = "BPL_IDAssignedToInvoice", skip_serializing_if = "Option::is_none")]
     pub bpl_assigned_to_invoice: Option<i32>,
 
-    #[serde(rename = "U_Warehouse_Order")]
+    #[serde(rename = "U_Warehouse_Order", skip_serializing_if = "Option::is_none")]
     pub u_warehouse_order: Option<String>,
 
-    #[serde(rename = "U_Warehouse_Order_Date")]
+    #[serde(rename = "U_Warehouse_Order_Date", skip_serializing_if = "Option::is_none")]
     pub u_warehouse_order_date: Option<String>,
 
-    #[serde(rename = "U_Warehouse_Order_Process")]
+    #[serde(rename = "U_Warehouse_Order_Process", skip_serializing_if = "Option::is_none")]
     pub u_warehouse_order_process: Option<String>,
 
-    #[serde(rename = "Document_ApprovalRequests")]
+    #[serde(rename = "Document_ApprovalRequests", skip_serializing_if = "Option::is_none")]
     pub document_approval_requests: Option<Vec<Value>>,
 
     #[serde(rename = "DocumentLines")]
     pub document_lines: Vec<DocumentLine>, 
 
-    #[serde(rename = "AddressExtension")]
+    #[serde(rename = "AddressExtension", skip_serializing_if = "Option::is_none")]
     pub address_extension: Option<AddressExtension>,
 
-    #[serde(rename = "U_BillingType")]
+    #[serde(rename = "U_BillingType", skip_serializing_if = "Option::is_none")]
     pub u_billing_type: Option<String>,
 
-    #[serde(rename = "TransportationCode")]
+    #[serde(rename = "TransportationCode", skip_serializing_if = "Option::is_none")]
     pub u_transportation_code: Option<i64>,
     
-    #[serde(rename = "TrnspCode")]
+    #[serde(rename = "TrnspCode", skip_serializing_if = "Option::is_none")]
     pub trnsp_code: Option<i64>,
 
-    #[serde(rename = "DocCurrency")]
+    #[serde(rename = "DocCurrency", skip_serializing_if = "Option::is_none")]
     pub doc_currency: Option<String>,
 
-    #[serde(rename = "U_U_WSO")]
+    #[serde(rename = "U_U_WSO", skip_serializing_if = "Option::is_none")]
     pub u_u_wso: Option<String>,
 
-    #[serde(rename = "ShipFrom")]
+    #[serde(rename = "ShipFrom", skip_serializing_if = "Option::is_none")]
     pub ship_from: Option<String>,
 
-    #[serde(rename = "TotalDiscount")]
+    #[serde(rename = "TotalDiscount", skip_serializing_if = "Option::is_none")]
     pub total_discount: Option<f64>,
 
-     #[serde(rename = "DiscountPercentage")]
+    #[serde(rename = "DiscountPercentage", skip_serializing_if = "Option::is_none")]
     pub discount_percentage: Option<i64>,
 
-    #[serde(rename = "ExtraDays")]
+    #[serde(rename = "ExtraDays", skip_serializing_if = "Option::is_none")]
     pub extra_days: Option<i64>,
 
-    #[serde(rename = "U_U_Department")]
+    #[serde(rename = "U_U_Department", skip_serializing_if = "Option::is_none")]
     pub u_u_department: Option<i64>,
 }
 
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AddressExtension {
-    #[serde(rename = "ShipToStreet")]
+    #[serde(rename = "ShipToStreet", skip_serializing_if = "Option::is_none")]
     pub ship_to_street: Option<String>,
 
-    #[serde(rename = "ShipToStreetNo")]
+    #[serde(rename = "ShipToStreetNo", skip_serializing_if = "Option::is_none")]
     pub ship_to_street_no: Option<String>,
 
-    #[serde(rename = "ShipToBlock")]
+    #[serde(rename = "ShipToBlock", skip_serializing_if = "Option::is_none")]
     pub ship_to_block: Option<String>,
 
-    #[serde(rename = "ShipToBuilding")]
+    #[serde(rename = "ShipToBuilding", skip_serializing_if = "Option::is_none")]
     pub ship_to_building: Option<String>,
 
-    #[serde(rename = "ShipToCity")]
+    #[serde(rename = "ShipToCity", skip_serializing_if = "Option::is_none")]
     pub ship_to_city: Option<String>,
 
-    #[serde(rename = "ShipToZipCode")]
+    #[serde(rename = "ShipToZipCode", skip_serializing_if = "Option::is_none")]
     pub ship_to_zip_code: Option<String>,
 
-    #[serde(rename = "ShipToCounty")]
+    #[serde(rename = "ShipToCounty", skip_serializing_if = "Option::is_none")]
     pub ship_to_county: Option<String>,
 
-    #[serde(rename = "ShipToState")]
+    #[serde(rename = "ShipToState", skip_serializing_if = "Option::is_none")]
     pub ship_to_state: Option<String>,
 
-    #[serde(rename = "ShipToCountry")]
+    #[serde(rename = "ShipToCountry", skip_serializing_if = "Option::is_none")]
     pub ship_to_country: Option<String>,
 
-    #[serde(rename = "BillToStreet")]
+    #[serde(rename = "BillToStreet", skip_serializing_if = "Option::is_none")]
     pub bill_to_street: Option<String>,
 
-    #[serde(rename = "BillToBlock")]
+    #[serde(rename = "BillToBlock", skip_serializing_if = "Option::is_none")]
     pub bill_to_block: Option<String>,
 
-    #[serde(rename = "BillToCity")]
+    #[serde(rename = "BillToCity", skip_serializing_if = "Option::is_none")]
     pub bill_to_city: Option<String>,
 
-    #[serde(rename = "BillToZipCode")]
+    #[serde(rename = "BillToZipCode", skip_serializing_if = "Option::is_none")]
     pub bill_to_zip_code: Option<String>,
 
-    #[serde(rename = "BillToState")]
+    #[serde(rename = "BillToState", skip_serializing_if = "Option::is_none")]
     pub bill_to_state: Option<String>,
 
-    #[serde(rename = "CountryB")]
+    #[serde(rename = "CountryB", skip_serializing_if = "Option::is_none")]
     pub country_b: Option<String>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DocumentLine {
-    #[serde(rename = "LineNum")]
+    #[serde(rename = "LineNum", skip_serializing_if = "Option::is_none")]
     pub line_num: Option<usize>,
 
-    #[serde(rename = "ShipDate")]
+    #[serde(rename = "ShipDate", skip_serializing_if = "Option::is_none")]
     pub ship_date: Option<String>,
 
-    #[serde(rename = "ItemCode")]
+    #[serde(rename = "ItemCode", skip_serializing_if = "Option::is_none")]
     pub item_code: Option<String>,
 
-    #[serde(rename = "ItemDescription")]
+    #[serde(rename = "ItemDescription", skip_serializing_if = "Option::is_none")]
     pub item_description: Option<String>,
 
-    #[serde(rename = "Quantity")]
+    #[serde(rename = "Quantity", skip_serializing_if = "Option::is_none")]
     pub quantity: Option<f64>,
 
-    #[serde(rename = "WarehouseCode")]
+    #[serde(rename = "WarehouseCode", skip_serializing_if = "Option::is_none")]
     pub warehouse_code: Option<String>,
 
-    #[serde(rename = "UnitPrice")]
+    #[serde(rename = "UnitPrice", skip_serializing_if = "Option::is_none")]
     pub unit_price: Option<f64>,
 
-    #[serde(rename = "Price")]
+    #[serde(rename = "Price", skip_serializing_if = "Option::is_none")]
     pub price: Option<f64>,
 
-    #[serde(rename = "TaxCode")]
+    #[serde(rename = "TaxCode", skip_serializing_if = "Option::is_none")]
     pub tax_code: Option<String>,
 
-    #[serde(rename = "U_ACW_DeliveryFrom")]
+    #[serde(rename = "U_ACW_DeliveryFrom", skip_serializing_if = "Option::is_none")]
     pub u_acw_delivery_from: Option<String>,
 
-    #[serde(rename = "U_ACW_DeliveryEnd")]
+    #[serde(rename = "U_ACW_DeliveryEnd", skip_serializing_if = "Option::is_none")]
     pub u_acw_delivery_end: Option<String>,
 
-    #[serde(rename = "U_TBD_Cust_No")]
+    #[serde(rename = "U_TBD_Cust_No", skip_serializing_if = "Option::is_none")]
     pub u_tbd_cust_no: Option<String>,
 
-    #[serde(rename = "SupplierCatNum")]
+    #[serde(rename = "SupplierCatNum", skip_serializing_if = "Option::is_none")]
     pub supplier_cat_num: Option<String>,
 
-    #[serde(rename = "U_TBD_Cust_Dept_No")]
+    #[serde(rename = "U_TBD_Cust_Dept_No", skip_serializing_if = "Option::is_none")]
     pub u_tbd_cust_dept_no: Option<i64>,
 
-    #[serde(rename = "U_TBD_SO_Ref")]
+    #[serde(rename = "U_TBD_SO_Ref", skip_serializing_if = "Option::is_none")]
     pub u_tbd_so_ref: Option<String>,
 }
