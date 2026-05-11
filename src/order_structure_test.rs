@@ -156,7 +156,7 @@ pub struct DocumentLine {
     pub warehouse_code: Option<String>,
 
     #[serde(rename = "UnitPrice")]
-    pub unit_price: Option<i64>,
+    pub unit_price: Option<f64>,
 
     #[serde(rename = "Price")]
     pub price: Option<f64>,
