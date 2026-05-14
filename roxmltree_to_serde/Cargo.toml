@@ -1,0 +1,19 @@
+[package]
+name = "roxmltree_to_serde"
+version = "0.6.2"
+edition = "2024"
+description = "Convert between XML JSON using roxmltree and serde"
+repository = "https://github.com/marcomq/roxmltree_to_serde"
+keywords = ["json", "xml", "xml2json", "xml_to_json"]
+license = "MIT"
+
+[dependencies]
+serde = "1.0"
+serde_json = { version = "1.0.149", features = ["arbitrary_precision"] }
+serde_derive = "1.0"
+roxmltree = "0.20.0"
+regex = "1.12.3"
+
+[features]
+json_types = [] # Enable to enforce fixed JSON data types for certain XML nodes
+regex_path = ["json_types"] # Enable Regex matching for JSON types

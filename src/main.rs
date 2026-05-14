@@ -1,15 +1,22 @@
 mod order_structure_test;
 use std::env;
 use std::fs;
-use std::path::Path;
 use serde_json::Value;
 use std::time::{Duration, Instant};
 
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
+use tracing_subscriber::EnvFilter;
 use std::error::Error;
-
 use order_structure_test::Orders;
+
+use anyhow::{anyhow, Result};
+use roxmltree_to_serde::{Config, NullValue, xml_str_to_json};
+use std::{
+    fs::File,
+    io::Read,
+    path::Path,
+};
 
 #[derive(Serialize)]
 struct LoginRequest {
@@ -27,22 +34,22 @@ struct LoginResponse {
     session_id: String,
 }
 
-#[derive(Deserialize, Debug)]
-struct BPAddressEntry {
-    #[serde(rename = "BusinessPartners/BPAddresses")]
-    bp_addresses: BPAddressFields,
-}
+// #[derive(Deserialize, Debug)]
+// struct BPAddressEntry {
+//     #[serde(rename = "BusinessPartners/BPAddresses")]
+//     bp_addresses: BPAddressFields,
+// }
 
-#[derive(Deserialize, Debug)]
-struct BPAddressFields {
-    #[serde(rename = "AddressName")]
-    address_name: String,
-}
+// #[derive(Deserialize, Debug)]
+// struct BPAddressFields {
+//     #[serde(rename = "AddressName")]
+//     address_name: String,
+// }
 
-#[derive(Deserialize, Debug)]
-struct BPAddressResponse {
-    value: Vec<BPAddressEntry>,
-}
+// #[derive(Deserialize, Debug)]
+// struct BPAddressResponse {
+//     value: Vec<BPAddressEntry>,
+// }
 
 #[derive(Deserialize, Debug)]
 struct CreateOrderResponse {
@@ -59,6 +66,90 @@ struct SapSession {
     created_at: Instant,
     expiry_duration: Duration,
 }
+
+
+// Extract root node from JSON
+fn extract_root_data(
+    json: serde_json::value::Value,
+) -> Result<Value, Box<dyn std::error::Error>> {
+    // Check if the root is an object
+    if let Value::Object(root) = json {
+        // Take the first key-value pair (if any)
+        if let Some((_key, inner_content)) = root.into_iter().next() {
+            // Return inner content
+            Ok(inner_content)
+        } else {
+            Err("Root object is empty".into())
+        }
+    } else {
+        Err("Root is not a JSON object".into())
+    }
+}
+
+// DocumentLines into list of it is not already
+fn ensure_array(
+    json: &mut Value,
+    field: &str,
+) {
+    if let Some(value) = json.get_mut(field) {
+
+        // Already array
+        if value.is_array() {
+            return;
+        }
+
+        // Convert object → array
+        let single = value.take();
+
+        *value = Value::Array(vec![single]);
+    }
+}
+
+// convert XML to json
+async fn process_file(path: &Path) -> Result<String> {
+    // Open XML file
+    let mut file = File::open(path)?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)?;
+
+    println!("XML Content:\n{}\n", contents);
+
+    // XML → JSON Config
+    let json_config = Config::new_with_custom_values(
+        true,
+        "",
+        "txt",
+        NullValue::Null,
+    );
+
+    // Convert XML → JSON
+    let json_struct = match xml_str_to_json(&contents, &json_config) {
+        Ok(json) => json,
+        Err(err) => {
+            println!("Failed to convert XML to JSON: {err}");
+            return Err(anyhow!("Failed to convert XML to JSON: {err}"));
+        }
+    };
+
+    // Extract root data
+    let mut json = match extract_root_data(json_struct) {
+        Ok(json) => json,
+        Err(err) => panic!("Failed to Extract Root Data from JSON, {err}"),
+    };
+
+    // DocumentLines into list if it is not already
+    ensure_array(&mut json, "DocumentLines");
+
+    // Pretty print JSON
+    println!(
+        "Converted JSON:\n{}",
+        serde_json::to_string_pretty(&json)?
+    );
+
+    Ok(serde_json::to_string_pretty(&json)?)
+    
+}
+
 
 impl SapSession {
     fn is_expired(&self) -> bool {
@@ -166,77 +257,77 @@ fn ensure_session(session: &mut SapSession) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn get_bp_address(
-    session: &mut SapSession,
-    data: &str, a_type: &str,
-) -> Result<Option<String>, Box<dyn Error>> {
-    // Proactively refresh if expired before making the call
-    ensure_session(session)?;
+// fn get_bp_address(
+//     session: &mut SapSession,
+//     data: &str, a_type: &str,
+// ) -> Result<Option<String>, Box<dyn Error>> {
+//     // Proactively refresh if expired before making the call
+//     ensure_session(session)?;
 
-    println!("--------inside get_bp_address---------");
+//     println!("--------inside get_bp_address---------");
 
-    let parts: Vec<&str> = data.split(',').collect();
-    let base_url = env::var("BASE_URL")?;
+//     let parts: Vec<&str> = data.split(',').collect();
+//     let base_url = env::var("BASE_URL")?;
 
-    let url = format!(
-        "{}/$crossjoin(BusinessPartners,BusinessPartners/BPAddresses)\
-        ?$expand=BusinessPartners($select=CardType,CardCode),\
-        BusinessPartners/BPAddresses($select=AddressName,AddressType,GlobalLocationNumber)\
-        &$filter=BusinessPartners/CardCode eq BusinessPartners/BPAddresses/BPCode \
-        and BusinessPartners/CardCode eq '{}' \
-        and BusinessPartners/BPAddresses/GlobalLocationNumber eq '{}' \
-        and BusinessPartners/CardType eq '{}' \
-        and BusinessPartners/BPAddresses/AddressType eq '{}'",
-        base_url, parts[3], parts[1], parts[0], a_type
-    );
+//     let url = format!(
+//         "{}/$crossjoin(BusinessPartners,BusinessPartners/BPAddresses)\
+//         ?$expand=BusinessPartners($select=CardType,CardCode),\
+//         BusinessPartners/BPAddresses($select=AddressName,AddressType,GlobalLocationNumber)\
+//         &$filter=BusinessPartners/CardCode eq BusinessPartners/BPAddresses/BPCode \
+//         and BusinessPartners/CardCode eq '{}' \
+//         and BusinessPartners/BPAddresses/GlobalLocationNumber eq '{}' \
+//         and BusinessPartners/CardType eq '{}' \
+//         and BusinessPartners/BPAddresses/AddressType eq '{}'",
+//         base_url, parts[3], parts[1], parts[0], a_type
+//     );
 
-    println!("Request URL:\n{}", url);
+//     println!("Request URL:\n{}", url);
 
-    let response = session
-        .client
-        .get(&url)
-        .header("Cookie", &session.cookies)
-        .send()?;
+//     let response = session
+//         .client
+//         .get(&url)
+//         .header("Cookie", &session.cookies)
+//         .send()?;
 
-    let response = if response.status() == 401 {
-        println!("Received 401. Re-authenticating and retrying...");
-        *session = sap_login()?;
+//     let response = if response.status() == 401 {
+//         println!("Received 401. Re-authenticating and retrying...");
+//         *session = sap_login()?;
 
-        let retry = session
-            .client
-            .get(&url)
-            .header("Cookie", &session.cookies)
-            .send()?;
+//         let retry = session
+//             .client
+//             .get(&url)
+//             .header("Cookie", &session.cookies)
+//             .send()?;
 
-        if !retry.status().is_success() {
-            let status = retry.status();
-            let body = retry.text().unwrap_or_default();
-            return Err(format!("Retry failed after re-auth: {} - {}", status, body).into());
-        }
-        retry
-    } else {
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().unwrap_or_default();
-        return Err(format!("Request failed: {} - {}", status, body).into());
-    }
-        response
-    };
+//         if !retry.status().is_success() {
+//             let status = retry.status();
+//             let body = retry.text().unwrap_or_default();
+//             return Err(format!("Retry failed after re-auth: {} - {}", status, body).into());
+//         }
+//         retry
+//     } else {
+//     if !response.status().is_success() {
+//         let status = response.status();
+//         let body = response.text().unwrap_or_default();
+//         return Err(format!("Request failed: {} - {}", status, body).into());
+//     }
+//         response
+//     };
 
-    let body = response.text()?;
-    println!("bp_address Response: {}", body);
+//     let body = response.text()?;
+//     println!("bp_address Response: {}", body);
 
-    let parsed: BPAddressResponse = serde_json::from_str(&body)?;
-    // let parsed: BPAddressResponse = response.json()?;
+//     let parsed: BPAddressResponse = serde_json::from_str(&body)?;
+//     // let parsed: BPAddressResponse = response.json()?;
 
-    let ship_to_code = parsed
-        .value
-        .into_iter()
-        .next()
-        .map(|entry| entry.bp_addresses.address_name);
+//     let ship_to_code = parsed
+//         .value
+//         .into_iter()
+//         .next()
+//         .map(|entry| entry.bp_addresses.address_name);
 
-    Ok(ship_to_code)
-}
+//     Ok(ship_to_code)
+// }
 
 fn create_order(
     session: &mut SapSession,
@@ -310,7 +401,15 @@ fn collect_files(dir: &Path) -> Result<Vec<String>, Box<dyn Error>> {
     Ok(files)
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+
+    // configuring logs
+    tracing_subscriber::fmt()
+        .with_ansi(false)
+        .with_env_filter(EnvFilter::new("info,tiberius=warn"))
+        .init();
+
     let args: Vec<String> = env::args().collect();
 
    if args.len() < 4 {
@@ -347,17 +446,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         let input_path = Path::new(file_path);
 
         // --- Read and parse the JSON file ---
-        let file_content = match fs::read_to_string(input_path) {
+        let file_content = match process_file(input_path).await {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("Failed to read {}: {}", file_path, e);
+                eprintln!("Failed to convert {}: {}", file_path, e);
                 let dest = error_dir.join(input_path.file_name().unwrap());
                 let _ = fs::copy(input_path, &dest);
                 continue;
             }
         };
-
-        let mut order_json: Orders = match serde_json::from_str(&file_content) {
+        let order_json: Orders = match serde_json::from_str(&file_content) {
             Ok(v) => v,
             Err(e) => {
                 eprintln!("Failed to parse JSON in {}: {}", file_path, e);
@@ -368,55 +466,55 @@ fn main() -> Result<(), Box<dyn Error>> {
         };
 
         // because ship_to_cod is optional currently
-        if let Some(ship_to_value) = &order_json.ship_to_code {
-            match get_bp_address(&mut session, ship_to_value, "S") {
-                Ok(Some(address)) => {
-                    println!("ShipTo AddressName: {}", address);
-                    order_json.ship_to_code = Some(address);
+        // if let Some(ship_to_value) = &order_json.ship_to_code {
+        //     match get_bp_address(&mut session, ship_to_value, "S") {
+        //         Ok(Some(address)) => {
+        //             println!("ShipTo AddressName: {}", address);
+        //             order_json.ship_to_code = Some(address);
 
-                    let file_name = input_path.file_name().ok_or("Invalid file name")?;
-                    let output_path = output_dir.join(file_name);
+        //             let file_name = input_path.file_name().ok_or("Invalid file name")?;
+        //             let output_path = output_dir.join(file_name);
 
-                    fs::write(&output_path, serde_json::to_string_pretty(&order_json)?)?;
-                    println!("Written to: {}", output_path.display());
-                }
-                Ok(None) => {
-                    eprintln!("No ShipTo address found for ShipToCode: {}", ship_to_value);
-                    let dest = error_dir.join(input_path.file_name().unwrap());
-                    let _ = fs::copy(input_path, &dest);
-                }
-                Err(e) => {
-                    eprintln!("API error for {}: {}", file_path, e);
-                    let dest = error_dir.join(input_path.file_name().unwrap());
-                    let _ = fs::copy(input_path, &dest);
-                }
-            }
-        }
+        //             fs::write(&output_path, serde_json::to_string_pretty(&order_json)?)?;
+        //             println!("Written to: {}", output_path.display());
+        //         }
+        //         Ok(None) => {
+        //             eprintln!("No ShipTo address found for ShipToCode: {}", ship_to_value);
+        //             let dest = error_dir.join(input_path.file_name().unwrap());
+        //             let _ = fs::copy(input_path, &dest);
+        //         }
+        //         Err(e) => {
+        //             eprintln!("API error for {}: {}", file_path, e);
+        //             let dest = error_dir.join(input_path.file_name().unwrap());
+        //             let _ = fs::copy(input_path, &dest);
+        //         }
+        //     }
+        // }
 
-        if let Some(pay_to_value) = &order_json.pay_to_code {
-            match get_bp_address(&mut session, pay_to_value, "B") {
-                Ok(Some(address)) => {
-                    println!("PayTo AddressName: {}", address);
-                    order_json.pay_to_code = Some(address);
+        // if let Some(pay_to_value) = &order_json.pay_to_code {
+        //     match get_bp_address(&mut session, pay_to_value, "B") {
+        //         Ok(Some(address)) => {
+        //             println!("PayTo AddressName: {}", address);
+        //             order_json.pay_to_code = Some(address);
 
-                    let file_name = input_path.file_name().ok_or("Invalid file name")?;
-                    let output_path = output_dir.join(file_name);
+        //             let file_name = input_path.file_name().ok_or("Invalid file name")?;
+        //             let output_path = output_dir.join(file_name);
 
-                    fs::write(&output_path, serde_json::to_string_pretty(&order_json)?)?;
-                    println!("Written to: {}", output_path.display());
-                }
-                Ok(None) => {
-                    eprintln!("No PayTo address found for PayToCode: {}", pay_to_value);
-                    let dest = error_dir.join(input_path.file_name().unwrap());
-                    let _ = fs::copy(input_path, &dest);
-                }
-                Err(e) => {
-                    eprintln!("API error for {}: {}", file_path, e);
-                    let dest = error_dir.join(input_path.file_name().unwrap());
-                    let _ = fs::copy(input_path, &dest);
-                }
-            }
-        }
+        //             fs::write(&output_path, serde_json::to_string_pretty(&order_json)?)?;
+        //             println!("Written to: {}", output_path.display());
+        //         }
+        //         Ok(None) => {
+        //             eprintln!("No PayTo address found for PayToCode: {}", pay_to_value);
+        //             let dest = error_dir.join(input_path.file_name().unwrap());
+        //             let _ = fs::copy(input_path, &dest);
+        //         }
+        //         Err(e) => {
+        //             eprintln!("API error for {}: {}", file_path, e);
+        //             let dest = error_dir.join(input_path.file_name().unwrap());
+        //             let _ = fs::copy(input_path, &dest);
+        //         }
+        //     }
+        // }
 
         // --- Create order in SAP ---
         match create_order(&mut session, &order_json) {

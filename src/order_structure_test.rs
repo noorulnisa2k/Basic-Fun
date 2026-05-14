@@ -105,7 +105,7 @@ pub struct AddressExtension {
     pub ship_to_city: Option<String>,
 
     #[serde(rename = "ShipToZipCode", skip_serializing_if = "Option::is_none")]
-    pub ship_to_zip_code: Option<String>,
+    pub ship_to_zip_code: Option<i64>,
 
     #[serde(rename = "ShipToCounty", skip_serializing_if = "Option::is_none")]
     pub ship_to_county: Option<String>,
@@ -175,6 +175,9 @@ pub struct DocumentLine {
 
     #[serde(rename = "SupplierCatNum", skip_serializing_if = "Option::is_none")]
     pub supplier_cat_num: Option<String>,
+
+    #[serde(rename = "LineTotal", skip_serializing_if = "Option::is_none")]
+    pub line_total: Option<f64>,
 
     #[serde(rename = "U_TBD_Cust_Dept_No", skip_serializing_if = "Option::is_none")]
     pub u_tbd_cust_dept_no: Option<i64>,
