@@ -59,7 +59,10 @@ pub struct Orders {
     pub u_billing_type: Option<String>,
 
     #[serde(rename = "TransportationCode", skip_serializing_if = "Option::is_none")]
-    pub u_transportation_code: Option<i64>,
+    pub u_transportation_code: Option<String>,
+
+    #[serde(rename = "U_SHIP_SCAC", skip_serializing_if = "Option::is_none")]
+    pub u_ship_scac: Option<String>,
     
     #[serde(rename = "TrnspCode", skip_serializing_if = "Option::is_none")]
     pub trnsp_code: Option<i64>,
@@ -105,7 +108,7 @@ pub struct AddressExtension {
     pub ship_to_city: Option<String>,
 
     #[serde(rename = "ShipToZipCode", skip_serializing_if = "Option::is_none")]
-    pub ship_to_zip_code: Option<i64>,
+    pub ship_to_zip_code: Option<String>,
 
     #[serde(rename = "ShipToCounty", skip_serializing_if = "Option::is_none")]
     pub ship_to_county: Option<String>,
@@ -184,4 +187,17 @@ pub struct DocumentLine {
 
     #[serde(rename = "U_TBD_SO_Ref", skip_serializing_if = "Option::is_none")]
     pub u_tbd_so_ref: Option<String>,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Token {
+    #[serde(rename = "odata.metadata")]
+    pub odata_metadata: Option<String>,
+    #[serde(rename = "SessionId")]
+    pub session_id: String,
+    #[serde(rename = "Version")]
+    pub version: Option<String>,
+    #[serde(rename = "SessionTimeout")]
+    pub session_timeout: Option<i64>,
 }

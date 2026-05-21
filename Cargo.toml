@@ -10,9 +10,17 @@ dotenv = "0.15"
 log = "0.4"
 env_logger = "0.10"
 reqwest = { version = "0.11", features = ["blocking", "json", "cookies", "cookie_store"] }
+reqwest-middleware = { version = "0.4.2", features = ["json", "rustls-tls"] }
+reqwest-retry = "0.7.0"
+hyper = "1.9.0"
 tokio = { version = "1", features = ["full"] }
 futures = "0.3"
 chrono = { version = "0.4", features = ["clock"] }
 roxmltree_to_serde = {path = "/Users/noor/Public/Ecom/basic_fun/roxmltree_to_serde"}
 anyhow = "1.0.102"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+tracing = "0.1.44"
+clap = { version = "4.6.0", features = ["derive"] }
+bb8-tiberius = "0.16.0"
+bb8 = "0.9.1"
+tiberius = {version = "0.12.3", features = ["tds73", "winauth","rustls", "rust_decimal"], default-features = false }
