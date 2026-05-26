@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -28,7 +28,7 @@ pub struct Orders {
     #[serde(rename = "TaxDate", skip_serializing_if = "Option::is_none")]
     pub tax_date: Option<String>,
 
-    #[serde(rename = "ShipToCode", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "ShipToCode", skip_serializing_if = "Option::is_none",)]
     pub ship_to_code: Option<String>,
 
     #[serde(rename = "PayToCode", skip_serializing_if = "Option::is_none")]
@@ -107,7 +107,7 @@ pub struct AddressExtension {
     #[serde(rename = "ShipToCity", skip_serializing_if = "Option::is_none")]
     pub ship_to_city: Option<String>,
 
-    #[serde(rename = "ShipToZipCode", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "ShipToZipCode", skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_option_string_from_number")]
     pub ship_to_zip_code: Option<String>,
 
     #[serde(rename = "ShipToCounty", skip_serializing_if = "Option::is_none")]
@@ -128,7 +128,7 @@ pub struct AddressExtension {
     #[serde(rename = "BillToCity", skip_serializing_if = "Option::is_none")]
     pub bill_to_city: Option<String>,
 
-    #[serde(rename = "BillToZipCode", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "BillToZipCode", skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_option_string_from_number")]
     pub bill_to_zip_code: Option<String>,
 
     #[serde(rename = "BillToState", skip_serializing_if = "Option::is_none")]
@@ -146,7 +146,7 @@ pub struct DocumentLine {
     #[serde(rename = "ShipDate", skip_serializing_if = "Option::is_none")]
     pub ship_date: Option<String>,
 
-    #[serde(rename = "ItemCode", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "ItemCode", skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_option_string_from_number")]
     pub item_code: Option<String>,
 
     #[serde(rename = "ItemDescription", skip_serializing_if = "Option::is_none")]
@@ -200,4 +200,20 @@ pub struct Token {
     pub version: Option<String>,
     #[serde(rename = "SessionTimeout")]
     pub session_timeout: Option<i64>,
+}
+
+fn deserialize_option_string_from_number<'de, D>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value: Option<Value> = Option::deserialize(deserializer)?;
+
+    match value {
+        Some(Value::Number(num)) => Ok(Some(num.to_string())),
+        Some(Value::String(s)) => Ok(Some(s)),
+        None => Ok(None),
+        _ => Err(de::Error::custom("Expected a number or string")),
+    }
 }

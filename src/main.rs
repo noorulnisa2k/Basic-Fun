@@ -557,6 +557,66 @@ async fn create_order(
     Ok(created)
 }
 
+async fn update_order_shipping_remarks(
+    sap_pool: &Arc<Pool<bb8_tiberius::ConnectionManager>>,
+    card_code: &str,
+    doc_num: i64,
+) -> Result<(), anyhow::Error> {
+    info!("Updating shipping remarks for DocNum: {}, CardCode: {}", doc_num, card_code);
+
+    // Query for shipping instructions
+    let query = r#"
+        SELECT
+            CAST(O.TrnspCode AS VARCHAR(20))
+            + '|'
+            + ISNULL(O.TrnspName, '')
+            + ' ||| Ship Window: '
+            + CONVERT(VARCHAR(10), GETDATE(), 110)
+            + '(Begin)'
+            + ' to '
+            + CONVERT(VARCHAR(10), GETDATE(), 110)
+            + '(End)'
+        AS sapShippingInstructions
+        FROM OCRD C
+        LEFT JOIN OSHP O
+            ON C.ShipType = O.TrnspCode
+        WHERE C.CardCode = @P1
+    "#;
+
+    info!("Fetching shipping instructions for CardCode: {}", card_code);
+    let rows = send_query(sap_pool, query, &[&card_code])
+        .await
+        .map_err(|e| anyhow!("Failed to query shipping instructions: {e}"))?;
+
+    let row = rows
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow!("No shipping instruction found for card_code {card_code}"))?;
+
+    let shipping_remarks: String = row
+        .try_get::<&str, _>("sapShippingInstructions")
+        .map_err(|err| anyhow!("Failed to parse sapShippingInstructions: {err}"))?
+        .ok_or_else(|| anyhow!("sapShippingInstructions is NULL in the database"))?
+        .to_string();
+
+    info!("Fetched shipping remarks: {}", shipping_remarks);
+
+    // Update the order with shipping remarks
+    let update_query = r#"
+        UPDATE ORDR
+        SET U_TBD_SA_Remarks = @P1
+        WHERE DocNum = @P2
+    "#;
+
+    info!("Updating ORDR table DocNum: {} with remarks", doc_num);
+    send_query(sap_pool, update_query, &[&shipping_remarks, &doc_num])
+        .await
+        .map_err(|e| anyhow!("Failed to update order shipping remarks: {e}"))?;
+
+    info!("Successfully updated shipping remarks for DocNum: {}", doc_num);
+    Ok(())
+}
+
 async fn process_file(
     input_path: &Path,
     error_path: std::sync::Arc<PathBuf>,
@@ -668,6 +728,16 @@ async fn process_file(
     ).await {
 
         Ok(created) => {
+
+            // Update order with shipping remarks
+            if let Err(err) = update_order_shipping_remarks(
+                &sap_pool,
+                &order_data.card_code,
+                created.doc_num,
+            ).await {
+                error!("Failed to update shipping remarks for DocNum {}: {err}", created.doc_num);
+                // Continue despite error - still write output
+            }
 
             // --- Build output JSON ---
             let mut output = serde_json::to_value(&order_data)?;
@@ -895,3 +965,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 // /Users/noor/Public/Ecom/input_files /Users/noor/Public/Ecom/output_files /Users/noor/Public/Ecom/error_files
 // basic_fun.exe C:/Users/BasicFun/Desktop/test/input/ C:/Users/BasicFun/Desktop/test/output/ C:/Users/BasicFun/Desktop/test/error/  
 // basic_fun.exe --input-dir "C:\Users\BasicFun\Desktop\test\input" --output-dir "C:\Users\BasicFun\Desktop\test\output" --error-dir "C:\Users\BasicFun\Desktop\test\error"
+
+
+// 945 path: 
+// basic_fun_945.exe --files-pickup-path C:\Users\BasicFun\Desktop\945\input --process-id 1234 --process-data-path C:\Users\BasicFun\Desktop\945\output --prism-path C:\Users\BasicFun\Desktop\945\error
