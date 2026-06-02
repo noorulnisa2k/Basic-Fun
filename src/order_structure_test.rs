@@ -107,7 +107,7 @@ pub struct AddressExtension {
     #[serde(rename = "ShipToCity", skip_serializing_if = "Option::is_none")]
     pub ship_to_city: Option<String>,
 
-    #[serde(rename = "ShipToZipCode", skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_option_string_from_number")]
+    #[serde(rename = "ShipToZipCode", default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_option_string_from_number")]
     pub ship_to_zip_code: Option<String>,
 
     #[serde(rename = "ShipToCounty", skip_serializing_if = "Option::is_none")]
@@ -128,7 +128,7 @@ pub struct AddressExtension {
     #[serde(rename = "BillToCity", skip_serializing_if = "Option::is_none")]
     pub bill_to_city: Option<String>,
 
-    #[serde(rename = "BillToZipCode", skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_option_string_from_number")]
+    #[serde(rename = "BillToZipCode", default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_option_string_from_number")]
     pub bill_to_zip_code: Option<String>,
 
     #[serde(rename = "BillToState", skip_serializing_if = "Option::is_none")]
@@ -146,7 +146,7 @@ pub struct DocumentLine {
     #[serde(rename = "ShipDate", skip_serializing_if = "Option::is_none")]
     pub ship_date: Option<String>,
 
-    #[serde(rename = "ItemCode", skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_option_string_from_number")]
+    #[serde(rename = "ItemCode", default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_option_string_from_number")]
     pub item_code: Option<String>,
 
     #[serde(rename = "ItemDescription", skip_serializing_if = "Option::is_none")]
