@@ -63,6 +63,12 @@ pub struct Orders {
 
     #[serde(rename = "U_SHIP_SCAC", skip_serializing_if = "Option::is_none")]
     pub u_ship_scac: Option<String>,
+
+    #[serde(rename = "U_SCAC", skip_serializing_if = "Option::is_none")]
+    pub u_scac: Option<String>,
+
+    #[serde(rename = "U_SHIP_VIA_ACCT", skip_serializing_if = "Option::is_none")]
+    pub u_ship_via_acct: Option<String>,
     
     #[serde(rename = "TrnspCode", skip_serializing_if = "Option::is_none")]
     pub trnsp_code: Option<i64>,

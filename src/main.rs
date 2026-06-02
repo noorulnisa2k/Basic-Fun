@@ -212,7 +212,6 @@ async fn send_query<'b>(
 ) -> Result<Vec<Row>, Box<dyn std::error::Error>> {
     debug!("Reaching send_query function with query {query_str}");
     info!("Sending SQL query:\n{}", query_str);
-    info!("Query parameters count: {}", parameters.len());
 
     let mut conn = pool
         .get()
@@ -334,7 +333,9 @@ async fn enrich_order_with_ship_scac(
     let query = r#"
         SELECT
             T1."TrnspCode",
-            T1."TrnspName"
+            T1."TrnspName",
+            T1."U_SCAC",
+            T0."U_Account_No"
         FROM [@ECSB1_SHIPVIA] T0
         INNER JOIN OSHP T1
             ON T1."TrnspCode" = T0."U_SCAC"
@@ -347,6 +348,7 @@ async fn enrich_order_with_ship_scac(
     let rows = send_query(sap_pool, query, &[&card_code, &transportation_code])
         .await
         .map_err(|e| anyhow!("{e}"))?;
+    info!("Shipvia rows response: {:#?}", &rows);
     let row = rows
         .into_iter()
         .next()
@@ -369,6 +371,27 @@ async fn enrich_order_with_ship_scac(
     order.u_transportation_code = Some(trnsp_code_str.clone());
     order.u_ship_scac = Some(trnsp_code_str);
     order.trnsp_code = Some(trnsp_code_i16.into());
+
+    // Extract U_SCAC and U_Account_No from the query result and populate the order
+    let u_scac_opt: Option<String> = match row.try_get::<&str, _>("U_SCAC") {
+        Ok(Some(s)) => Some(s.to_string()),
+        Ok(None) => None,
+        Err(err) => return Err(anyhow!("Failed to parse U_SCAC: {err}")),
+    };
+
+    let u_account_no_opt: Option<String> = match row.try_get::<&str, _>("U_Account_No") {
+        Ok(Some(s)) => Some(s.to_string()),
+        Ok(None) => None,
+        Err(err) => return Err(anyhow!("Failed to parse U_Account_No: {err}")),
+    };
+
+    if let Some(u_scac_val) = u_scac_opt {
+        order.u_scac = Some(u_scac_val);
+    }
+
+    if let Some(acc_no) = u_account_no_opt {
+        order.u_ship_via_acct = Some(acc_no);
+    }
 
     Ok(())
 }
