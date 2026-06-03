@@ -1,0 +1,11 @@
+/Users/noor/Public/Ecom/basic_fun/basicfun856/target/x86_64-pc-windows-gnu/release/deps/getrandom-430872b8f60da272.d: /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/lib.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/error.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/util.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/error_impls.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/windows.rs
+
+/Users/noor/Public/Ecom/basic_fun/basicfun856/target/x86_64-pc-windows-gnu/release/deps/libgetrandom-430872b8f60da272.rlib: /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/lib.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/error.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/util.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/error_impls.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/windows.rs
+
+/Users/noor/Public/Ecom/basic_fun/basicfun856/target/x86_64-pc-windows-gnu/release/deps/libgetrandom-430872b8f60da272.rmeta: /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/lib.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/error.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/util.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/error_impls.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/windows.rs
+
+/Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/lib.rs:
+/Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/error.rs:
+/Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/util.rs:
+/Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/error_impls.rs:
+/Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.1.16/src/windows.rs:

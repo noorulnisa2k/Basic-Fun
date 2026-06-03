@@ -1,35 +1,29 @@
 mod order_structure_test;
-use order_structure_test::{Orders,Token};
+use order_structure_test::{Orders, Token};
 
-use std::env;
-use std::fs;
 use clap::Parser;
 use serde_json::Value;
+use std::env;
+use std::fs;
 use std::time::{Duration, Instant};
 
-use serde::{Deserialize};
-use tracing_subscriber::EnvFilter;
-use std::error::Error;
 use futures::future::join_all;
-use tokio::sync::{Semaphore};
+use serde::Deserialize;
+use std::error::Error;
+use tokio::sync::Semaphore;
+use tracing_subscriber::EnvFilter;
 
 use bb8::Pool;
-use tracing::{debug, error, info};
 use reqwest_middleware::reqwest::{Client, StatusCode};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
-use reqwest_retry::{RetryTransientMiddleware, Retryable, policies::ExponentialBackoff};
+use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware, Retryable};
 use tiberius::{Row, ToSql};
+use tracing::{debug, error, info};
 
 use anyhow::{anyhow, Result};
 
-use roxmltree_to_serde::{Config, NullValue, xml_str_to_json};
-use std::{
-    fs::File,
-    io::Read,
-    path::Path,
-    path::PathBuf,
-    sync::Arc
-};
+use roxmltree_to_serde::{xml_str_to_json, Config, NullValue};
+use std::{fs::File, io::Read, path::Path, path::PathBuf, sync::Arc};
 
 const THREADS: usize = 8;
 
@@ -233,11 +227,8 @@ async fn send_query<'b>(
     Ok(rows)
 }
 
-
 // Extract root node from JSON
-fn extract_root_data(
-    json: serde_json::value::Value,
-) -> Result<Value, Box<dyn std::error::Error>> {
+fn extract_root_data(json: serde_json::value::Value) -> Result<Value, Box<dyn std::error::Error>> {
     // Check if the root is an object
     if let Value::Object(root) = json {
         // Take the first key-value pair (if any)
@@ -253,12 +244,8 @@ fn extract_root_data(
 }
 
 // DocumentLines into list of it is not already
-fn ensure_array(
-    json: &mut Value,
-    field: &str,
-) {
+fn ensure_array(json: &mut Value, field: &str) {
     if let Some(value) = json.get_mut(field) {
-
         // Already array
         if value.is_array() {
             return;
@@ -281,12 +268,7 @@ async fn xml_to_json_converter(path: &Path) -> Result<Orders> {
     debug!("XML Content:\n{}\n", contents);
 
     // XML → JSON Config
-    let json_config = Config::new_with_custom_values(
-        true,
-        "",
-        "txt",
-        NullValue::Null,
-    );
+    let json_config = Config::new_with_custom_values(true, "", "txt", NullValue::Null);
 
     // Convert XML → JSON
     let json_struct = match xml_str_to_json(&contents, &json_config) {
@@ -307,14 +289,17 @@ async fn xml_to_json_converter(path: &Path) -> Result<Orders> {
     ensure_array(&mut json, "DocumentLines");
 
     // Print the JSON before deserialization so the exact payload can be inspected.
-    println!("JSON before deserialization for {}:\n{}", path.display(), serde_json::to_string_pretty(&json).unwrap_or_default());
+    println!(
+        "JSON before deserialization for {}:\n{}",
+        path.display(),
+        serde_json::to_string_pretty(&json).unwrap_or_default()
+    );
 
     // Deserialize into Orders struct
-    let orders: Orders = serde_json::from_value(json)
-        .map_err(|e| {
-            error!("Failed to deserialize Orders from JSON: {e}");
-            anyhow!("Failed to deserialize Orders from JSON: {e}")
-        })?;
+    let orders: Orders = serde_json::from_value(json).map_err(|e| {
+        error!("Failed to deserialize Orders from JSON: {e}");
+        anyhow!("Failed to deserialize Orders from JSON: {e}")
+    })?;
 
     Ok(orders)
 }
@@ -335,7 +320,8 @@ async fn enrich_order_with_ship_scac(
             T1."TrnspCode",
             T1."TrnspName",
             T1."U_SCAC",
-            T0."U_Account_No"
+            T0."U_Account_No",
+            T0."U_Account_Zipcode"
         FROM [@ECSB1_SHIPVIA] T0
         INNER JOIN OSHP T1
             ON T1."TrnspCode" = T0."U_SCAC"
@@ -344,11 +330,13 @@ async fn enrich_order_with_ship_scac(
             AND T0."U_BPM_Ship_VIA" = @P2
     "#;
 
-    info!("Query parameters: card_code='{}', transportation_code='{}'", card_code, transportation_code);
+    info!(
+        "Query parameters: card_code='{}', transportation_code='{}'",
+        card_code, transportation_code
+    );
     let rows = send_query(sap_pool, query, &[&card_code, &transportation_code])
         .await
         .map_err(|e| anyhow!("{e}"))?;
-    info!("Shipvia rows response: {:#?}", &rows);
     let row = rows
         .into_iter()
         .next()
@@ -364,13 +352,32 @@ async fn enrich_order_with_ship_scac(
         .map_err(|err| anyhow!("Failed to parse TrnspName: {err}"))?
         .ok_or_else(|| anyhow!("TrnspName is NULL in the database"))?
         .to_string();
+    let scac_u: String = row
+        .try_get::<&str, _>("U_SCAC")
+        .map_err(|err| anyhow!("Failed to parse U_SCAC: {err}"))?
+        .ok_or_else(|| anyhow!("U_SCAC is NULL in the database"))?
+        .to_string();
+    let ship_via_acct: String = row
+        .try_get::<&str, _>("U_Account_No")
+        .map_err(|err| anyhow!("Failed to parse U_Account_No: {err}"))?
+        .ok_or_else(|| anyhow!("U_Account_No is NULL in the database"))?
+        .to_string();
 
-    info!("TrnspName: {}", trnsp_name);
+    let account_zip: String = row
+        .try_get::<&str, _>("U_Account_Zipcode")
+        .map_err(|err| anyhow!("Failed to parse U_Account_Zipcode: {err}"))?
+        .ok_or_else(|| anyhow!("U_Account_Zipcode is NULL in the database"))?
+        .to_string();
+
+    info!("TrnspName: {}, trnsp_code_i16: {}, scac_u: {}, ship_via_acct: {}, account_zip: {}", trnsp_name, trnsp_code_i16, scac_u, ship_via_acct, account_zip);
 
     let trnsp_code_str = trnsp_code_i16.to_string();
     order.u_transportation_code = Some(trnsp_code_str.clone());
     order.u_ship_scac = Some(trnsp_code_str);
     order.trnsp_code = Some(trnsp_code_i16.into());
+    order.u_scac = Some(scac_u);
+    order.u_ship_via_acct = Some(ship_via_acct);
+    order.u_account_zip = Some(account_zip);
 
     // Extract U_SCAC and U_Account_No from the query result and populate the order
     let u_scac_opt: Option<String> = match row.try_get::<&str, _>("U_SCAC") {
@@ -396,13 +403,54 @@ async fn enrich_order_with_ship_scac(
     Ok(())
 }
 
-async fn get_token(client: &ClientWithMiddleware,) -> Result<Token, Box<dyn Error>> {
 
+async fn billing_type_check(
+    sap_pool: &Arc<Pool<bb8_tiberius::ConnectionManager>>,
+    order: &mut Orders,
+) -> Result<(), anyhow::Error> {
+    let card_code = order.card_code.clone();
+    let query = r#"
+        SELECT
+            U_PayType
+        FROM OCRD
+        WHERE
+            CardCode = @P1
+    "#;
+
+    info!(
+        "Query parameters: card_code='{}'",
+        card_code
+    );
+    let rows = send_query(sap_pool, query, &[&card_code])
+        .await
+        .map_err(|e| anyhow!("{e}"))?;
+    let row = rows
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow!("No matching shipvia row for card_code {card_code}"))?;
+
+    let bill_type: String = row
+        .try_get::<&str, _>("U_PayType")
+        .map_err(|err| anyhow!("Failed to parse U_PayType: {err}"))?
+        .ok_or_else(|| anyhow!("U_PayType is NULL in the database"))?
+        .to_string();
+
+    info!("Bill Type: {}", bill_type);
+
+    order.u_billing_type = Some(bill_type);
+
+    Ok(())
+}
+
+async fn get_token(client: &ClientWithMiddleware) -> Result<Token, Box<dyn Error>> {
     let base_url = env::var("BASE_URL").expect("BASE_URL must be set");
     let company = env::var("Company_DB").expect("Company_DB must be set");
     let username = env::var("User_Name").expect("User_Name must be set");
     let password = env::var("Password").expect("Password must be set");
-    info!("env cred: {:?}, {:?}, {:?}, {:?}", base_url, company, username, password);
+    info!(
+        "env cred: {:?}, {:?}, {:?}, {:?}",
+        base_url, company, username, password
+    );
 
     let login_data = serde_json::json!({
         "CompanyDB": company,
@@ -434,7 +482,6 @@ async fn get_token(client: &ClientWithMiddleware,) -> Result<Token, Box<dyn Erro
 
     info!("Token: {:?}", response);
 
-
     // Deserialize the response JSON into the Token struct
     let token: Token = match response.json().await {
         Ok(token) => token,
@@ -445,7 +492,6 @@ async fn get_token(client: &ClientWithMiddleware,) -> Result<Token, Box<dyn Erro
 
     Ok(token) // Return the deserialized token
 }
-
 
 // fn get_bp_address(
 //     session: &mut SapSession,
@@ -523,7 +569,6 @@ async fn create_order(
     client: &ClientWithMiddleware,
     order: &Orders,
 ) -> Result<CreateOrderResponse, anyhow::Error> {
-
     info!("-------- inside create_order --------");
 
     let base_url = env::var("BASE_URL")?;
@@ -532,10 +577,8 @@ async fn create_order(
     info!("Creating SAP Order");
     info!("URL: {}", url);
 
-    debug!(
-        "Payload:\n{}",
-        serde_json::to_string_pretty(order)?
-    );
+    let payload = serde_json::to_string_pretty(order)?;
+    info!("Payload:\n{}", payload);
 
     let response = client
         .post(&url)
@@ -546,7 +589,6 @@ async fn create_order(
 
     // Handle failed response
     if !response.status().is_success() {
-
         let status = response.status();
 
         let body = match response.text().await {
@@ -554,27 +596,17 @@ async fn create_order(
             Err(_) => "Unable to read response body".to_string(),
         };
 
-        error!(
-            "SAP order creation failed: {} - {}",
-            status,
-            body
-        );
+        error!("SAP order creation failed: {} - {}", status, body);
 
-        return Err(anyhow!(
-            "Order creation failed: {} - {}",
-            status,
-            body
-        ));
+        return Err(anyhow!("Order creation failed: {} - {}", status, body));
     }
 
     // Parse SAP response
-    let created: CreateOrderResponse =
-        response.json().await?;
+    let created: CreateOrderResponse = response.json().await?;
 
     info!(
         "Order created successfully — DocNum: {}, DocEntry: {}",
-        created.doc_num,
-        created.doc_entry
+        created.doc_num, created.doc_entry
     );
 
     Ok(created)
@@ -585,7 +617,10 @@ async fn update_order_shipping_remarks(
     card_code: &str,
     doc_num: i64,
 ) -> Result<(), anyhow::Error> {
-    info!("Updating shipping remarks for DocNum: {}, CardCode: {}", doc_num, card_code);
+    info!(
+        "Updating shipping remarks for DocNum: {}, CardCode: {}",
+        doc_num, card_code
+    );
 
     // Query for shipping instructions
     let query = r#"
@@ -636,7 +671,10 @@ async fn update_order_shipping_remarks(
         .await
         .map_err(|e| anyhow!("Failed to update order shipping remarks: {e}"))?;
 
-    info!("Successfully updated shipping remarks for DocNum: {}", doc_num);
+    info!(
+        "Successfully updated shipping remarks for DocNum: {}",
+        doc_num
+    );
     Ok(())
 }
 
@@ -648,48 +686,43 @@ async fn process_file(
     session_id: &str,
     client: std::sync::Arc<ClientWithMiddleware>,
 ) -> Result<(), anyhow::Error> {
-
     info!("Processing: {}", input_path.display());
 
     // --- Convert XML directly into Orders struct ---
     let mut order_data = match xml_to_json_converter(input_path).await {
         Ok(data) => data,
         Err(e) => {
-            error!(
-                "Failed to convert {}: {}",
-                input_path.display(),
-                e
-            );
+            error!("Failed to convert {}: {}", input_path.display(), e);
 
-            let dest = error_path.join(
-                input_path
-                    .file_name()
-                    .ok_or(anyhow!("Invalid file name"))?
-            );
+            let dest = error_path.join(input_path.file_name().ok_or(anyhow!("Invalid file name"))?);
 
             let _ = fs::copy(input_path, &dest);
 
-            return Err(anyhow!(
-                "Failed to convert XML: {}",
-                e
-            ));
+            return Err(anyhow!("Failed to convert XML: {}", e));
         }
     };
+    if order_data.card_code.is_empty() {    
+        if let Err(err) = billing_type_check(&sap_pool, &mut order_data).await {
+                error!("Failed to enrich order for {}: {err}", input_path.display());
+                let dest = error_path.join(input_path.file_name().ok_or(anyhow!("Invalid file name"))?);
+                let _ = fs::copy(input_path, &dest);
+                return Err(anyhow!("Order billing type check failed: {err}"));
+        }
+    }
 
     // Amazon-specific ship SCAC enrichment only for cardcodes K00008 and D01865.
     if order_data.card_code == "K00008" || order_data.card_code == "D01865" {
         if let Err(err) = enrich_order_with_ship_scac(&sap_pool, &mut order_data).await {
             error!("Failed to enrich order for {}: {err}", input_path.display());
-            let dest = error_path.join(
-                input_path
-                    .file_name()
-                    .ok_or(anyhow!("Invalid file name"))?
-            );
+            let dest = error_path.join(input_path.file_name().ok_or(anyhow!("Invalid file name"))?);
             let _ = fs::copy(input_path, &dest);
             return Err(anyhow!("Failed to enrich order: {err}"));
         }
     } else {
-        info!("Skipping ship SCAC enrichment for non-Amazon card_code={}", order_data.card_code);
+        info!(
+            "Skipping ship SCAC enrichment for non-Amazon card_code={}",
+            order_data.card_code
+        );
     }
 
     // because ship_to_cod is optional currently
@@ -744,70 +777,44 @@ async fn process_file(
     // }
 
     // --- Create order in SAP ---
-    match create_order(
-        session_id,
-        client.as_ref(),
-        &order_data,
-    ).await {
-
+    match create_order(session_id, client.as_ref(), &order_data).await {
         Ok(created) => {
-
             // Update order with shipping remarks
-            if let Err(err) = update_order_shipping_remarks(
-                &sap_pool,
-                &order_data.card_code,
-                created.doc_num,
-            ).await {
-                error!("Failed to update shipping remarks for DocNum {}: {err}", created.doc_num);
+            if let Err(err) =
+                update_order_shipping_remarks(&sap_pool, &order_data.card_code, created.doc_num)
+                    .await
+            {
+                error!(
+                    "Failed to update shipping remarks for DocNum {}: {err}",
+                    created.doc_num
+                );
                 // Continue despite error - still write output
             }
 
             // --- Build output JSON ---
             let mut output = serde_json::to_value(&order_data)?;
 
-            output["sap_doc_num"] =
-                Value::Number(created.doc_num.into());
+            output["sap_doc_num"] = Value::Number(created.doc_num.into());
 
-            output["sap_doc_entry"] =
-                Value::Number(created.doc_entry.into());
+            output["sap_doc_entry"] = Value::Number(created.doc_entry.into());
 
-            let file_name = input_path
-                .file_name()
-                .ok_or(anyhow!("Invalid file name"))?;
+            let file_name = input_path.file_name().ok_or(anyhow!("Invalid file name"))?;
 
             let output_path = output_dir.join(file_name);
 
-            fs::write(
-                &output_path,
-                serde_json::to_string_pretty(&output)?
-            )?;
+            fs::write(&output_path, serde_json::to_string_pretty(&output)?)?;
 
-            info!(
-                "Written output file: {}",
-                output_path.display()
-            );
+            info!("Written output file: {}", output_path.display());
         }
 
         Err(e) => {
+            error!("Order creation failed for {}: {}", input_path.display(), e);
 
-            error!(
-                "Order creation failed for {}: {}",
-                input_path.display(),
-                e
-            );
-
-            let dest = error_path.join(
-                input_path
-                    .file_name()
-                    .ok_or(anyhow!("Invalid file name"))?
-            );
+            let dest = error_path.join(input_path.file_name().ok_or(anyhow!("Invalid file name"))?);
 
             let _ = fs::copy(input_path, &dest);
 
-            return Err(anyhow!(
-                "Failed to create SAP order: {}",
-                e
-            ));
+            return Err(anyhow!("Failed to create SAP order: {}", e));
         }
     }
 
@@ -820,7 +827,7 @@ async fn process_files(
     error_dir: std::sync::Arc<PathBuf>,
     sap_pool: &Arc<Pool<bb8_tiberius::ConnectionManager>>,
     session_id: &Arc<String>,
-    client: &Arc<ClientWithMiddleware>
+    client: &Arc<ClientWithMiddleware>,
 ) -> Result<(), anyhow::Error> {
     let semaphore = Arc::new(Semaphore::new(THREADS));
     let mut handles = Vec::new();
@@ -855,10 +862,19 @@ async fn process_files(
         handles.push(tokio::spawn(async move {
             let _permit = permit;
 
-            match process_file(&path, err_dir, out_dir, sap_pool, session_id.as_str(), client).await {
+            match process_file(
+                &path,
+                err_dir,
+                out_dir,
+                sap_pool,
+                session_id.as_str(),
+                client,
+            )
+            .await
+            {
                 Ok(_) => {
                     info!("Processed file: {}", path.display());
-                    
+
                     match tokio::fs::remove_file(&path).await {
                         Ok(_) => {
                             info!("Removed {}", path.display());
@@ -873,9 +889,7 @@ async fn process_files(
                     };
                     Ok(())
                 }
-                Err(e) => {
-                    Err(anyhow!("Failed to process {}: {e}", path.display()))
-                }
+                Err(e) => Err(anyhow!("Failed to process {}: {e}", path.display())),
             }
         }));
     }
@@ -910,7 +924,6 @@ async fn process_files(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-
     // configuring logs
     tracing_subscriber::fmt()
         .with_ansi(false)
@@ -920,15 +933,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // let args: Vec<String> = env::args().collect();
 
-//    if args.len() < 4 {
-//         eprintln!("Param Missing");
-//         std::process::exit(1);
-//     }
-//     println!("{:?}, lenght: {}", args, args.len());
+    //    if args.len() < 4 {
+    //         eprintln!("Param Missing");
+    //         std::process::exit(1);
+    //     }
+    //     println!("{:?}, lenght: {}", args, args.len());
 
-//     let input_dir = Path::new(&args[1]);
-//     let output_dir = Path::new(&args[2]);
-//     let error_dir = Path::new(&args[3]);
+    //     let input_dir = Path::new(&args[1]);
+    //     let output_dir = Path::new(&args[2]);
+    //     let error_dir = Path::new(&args[3]);
 
     let args = Args::parse();
     let input_dir = Arc::new(args.input_dir);
@@ -954,8 +967,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     // Configure retry policy
-    let retry_policy =
-        ExponentialBackoff::builder()
+    let retry_policy = ExponentialBackoff::builder()
         .retry_bounds(Duration::from_millis(100), Duration::from_secs(30))
         .build_with_total_retry_duration(Duration::from_secs(2 * 60));
 
@@ -978,7 +990,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         &sap_pool,
         &session_id,
         &client,
-    ).await?;
+    )
+    .await?;
 
     println!("\nAll files processed.");
     info!("Processing Time {:?}", start.elapsed());
@@ -986,9 +999,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 // /Users/noor/Public/Ecom/input_files /Users/noor/Public/Ecom/output_files /Users/noor/Public/Ecom/error_files
-// basic_fun.exe C:/Users/BasicFun/Desktop/test/input/ C:/Users/BasicFun/Desktop/test/output/ C:/Users/BasicFun/Desktop/test/error/  
+// basic_fun.exe C:/Users/BasicFun/Desktop/test/input/ C:/Users/BasicFun/Desktop/test/output/ C:/Users/BasicFun/Desktop/test/error/
 // basic_fun.exe --input-dir "C:\Users\BasicFun\Desktop\test\input" --output-dir "C:\Users\BasicFun\Desktop\test\output" --error-dir "C:\Users\BasicFun\Desktop\test\error"
 
-
-// 945 path: 
+// 945 path:
 // basic_fun_945.exe --files-pickup-path C:\Users\BasicFun\Desktop\945\input --process-id 1234 --process-data-path C:\Users\BasicFun\Desktop\945\output --prism-path C:\Users\BasicFun\Desktop\945\error

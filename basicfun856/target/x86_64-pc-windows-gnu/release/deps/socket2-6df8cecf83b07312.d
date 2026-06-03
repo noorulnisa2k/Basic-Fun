@@ -1,0 +1,11 @@
+/Users/noor/Public/Ecom/basic_fun/basicfun856/target/x86_64-pc-windows-gnu/release/deps/socket2-6df8cecf83b07312.d: /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.4/src/lib.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.4/src/sockaddr.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.4/src/socket.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.4/src/sockref.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.4/src/sys/windows.rs
+
+/Users/noor/Public/Ecom/basic_fun/basicfun856/target/x86_64-pc-windows-gnu/release/deps/libsocket2-6df8cecf83b07312.rlib: /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.4/src/lib.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.4/src/sockaddr.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.4/src/socket.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.4/src/sockref.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.4/src/sys/windows.rs
+
+/Users/noor/Public/Ecom/basic_fun/basicfun856/target/x86_64-pc-windows-gnu/release/deps/libsocket2-6df8cecf83b07312.rmeta: /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.4/src/lib.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.4/src/sockaddr.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.4/src/socket.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.4/src/sockref.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.4/src/sys/windows.rs
+
+/Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.4/src/lib.rs:
+/Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.4/src/sockaddr.rs:
+/Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.4/src/socket.rs:
+/Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.4/src/sockref.rs:
+/Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/socket2-0.6.4/src/sys/windows.rs:

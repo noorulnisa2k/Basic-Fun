@@ -1,0 +1,14 @@
+/Users/noor/Public/Ecom/basic_fun/basicfun856/target/x86_64-pc-windows-gnu/release/deps/serde-8301f050b565fb1a.d: /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/noor/Public/Ecom/basic_fun/basicfun856/target/x86_64-pc-windows-gnu/release/build/serde-60b0be0cb5853d50/out/private.rs
+
+/Users/noor/Public/Ecom/basic_fun/basicfun856/target/x86_64-pc-windows-gnu/release/deps/libserde-8301f050b565fb1a.rlib: /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/noor/Public/Ecom/basic_fun/basicfun856/target/x86_64-pc-windows-gnu/release/build/serde-60b0be0cb5853d50/out/private.rs
+
+/Users/noor/Public/Ecom/basic_fun/basicfun856/target/x86_64-pc-windows-gnu/release/deps/libserde-8301f050b565fb1a.rmeta: /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/noor/Public/Ecom/basic_fun/basicfun856/target/x86_64-pc-windows-gnu/release/build/serde-60b0be0cb5853d50/out/private.rs
+
+/Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs:
+/Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs:
+/Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs:
+/Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs:
+/Users/noor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs:
+/Users/noor/Public/Ecom/basic_fun/basicfun856/target/x86_64-pc-windows-gnu/release/build/serde-60b0be0cb5853d50/out/private.rs:
+
+# env-dep:OUT_DIR=/Users/noor/Public/Ecom/basic_fun/basicfun856/target/x86_64-pc-windows-gnu/release/build/serde-60b0be0cb5853d50/out
