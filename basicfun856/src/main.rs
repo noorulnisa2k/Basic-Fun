@@ -1,3 +1,4 @@
+mod order_structure;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use quick_xml::se::to_string_with_root;
@@ -5,8 +6,9 @@ use anyhow::{anyhow, Result};
 use tracing::{info, error, debug, warn};
 use tracing_subscriber::EnvFilter;
 use clap::Parser;
-use chrono::Local;
+use chrono::{Local, NaiveDateTime};
 use dotenv::dotenv;
+use bytes::Bytes;
 use std::env;
 use std::error::Error;
 use std::path::PathBuf;
@@ -14,12 +16,15 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
 use bb8::Pool;
-use bytes::Bytes;
 use reqwest_middleware::reqwest::{Client, Method, StatusCode};
+// use reqwest_middleware::reqwest::Client;
 use reqwest_middleware::reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE, COOKIE};
+use tiberius::numeric::Numeric;
 use tiberius::{Row, ToSql};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::{RetryTransientMiddleware, Retryable, policies::ExponentialBackoff};
+// use reqwest_middleware::reqwest::StatusCode;
+use order_structure::{Orders, Root, Tracking};
 
 const THREADS: usize = 8;
 
@@ -250,15 +255,73 @@ async fn send_query<'b>(
     Ok(rows)
 }
 
+fn row_to_tracking(row: &Row) -> Tracking {
+    Tracking {
+        u_line_num: row.get::<i32, _>("U_LineNum").map(|v| v as i64),
+        u_item_code: row.get::<&str, _>("U_ItemCode").map(str::to_string),
+        u_quantity: row.get::<i32, _>("U_Quantity").map(|v| v.to_string()),
+        u_carton_id: row.get::<&str, _>("U_CartonID").map(str::to_string),
+        // U_ItemsPerCarton comes back as Numericn; read as Numeric and stringify it safely
+        u_items_per_carton: row
+            .try_get::<Numeric, _>("U_ItemsPerCarton")
+            .ok()
+            .flatten()
+            .map(|v| v.to_string()),
+        u_carton_quantity: row.get::<i32, _>("U_CartonQuantity").map(|v| v.to_string()),
+        u_tracking_id: row.get::<&str, _>("U_TrackingID").map(str::to_string),
+        u_ucc128: row.get::<&str, _>("U_UCC128").map(str::to_string),
+        u_doc_entry: row.get::<i32, _>("U_DocEntry").map(|v| v.to_string()),
+        u_pack_level_type: row.get::<&str, _>("U_PackLevelType").map(str::to_string),
+        u_upallet_sscc: row.get::<&str, _>("U_UPalletSSCC").map(str::to_string),
+        u_shipping_type: row.get::<&str, _>("U_ShippingType").map(str::to_string),
+        u_lot_number: row.get::<&str, _>("U_LotNumber").map(str::to_string),
+        u_pallet_count: row.get::<i32, _>("U_PalletCount").map(|v| v.to_string()),
+        // U_EstDeliveryDate is Datetimen; try to read as NaiveDateTime and stringify
+        u_est_del: row
+            .get::<NaiveDateTime, _>("U_EstDeliveryDate")
+            .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S").to_string()),
+    }
+}
+
+async fn get_tracking_by_doc_entry(
+    pool: &Arc<Pool<bb8_tiberius::ConnectionManager>>,
+    doc_entry: u64,
+) -> Result<Vec<Tracking>, anyhow::Error> {
+    let query = format!(
+        "SELECT
+            U_LineNum,
+            U_ItemCode,
+            U_Quantity,
+            U_CartonID,
+            U_ItemsPerCarton,
+            U_CartonQuantity,
+            U_TrackingID,
+            U_UCC128,
+            U_DocEntry,
+            U_PackLevelType,
+            U_UPalletSSCC,
+            U_ShippingType,
+            U_LotNumber,
+            U_PalletCount,
+            U_EstDeliveryDate
+        FROM [@ECSB1_DLN]
+        WHERE U_DocEntry = {}",
+        doc_entry
+    );
+
+    let rows = send_query(pool, &query, &[&(doc_entry as i64)]).await?;
+    Ok(rows.into_iter().map(|row| row_to_tracking(&row)).collect())
+}
 
 async fn get_delivery_notes(
     base_url: &str,
     session_id: &str,
     client: &ClientWithMiddleware,
     output_dir: &std::path::Path,
+    sap_pool: &Arc<Pool<bb8_tiberius::ConnectionManager>>,
 ) -> Result<Value> {
     let uri = "/DeliveryNotes";
-    let query = "$filter=U_945_Advice eq 'Y' AND DocumentStatus eq 'bost_Open'";
+    let query = "$filter=U_945_Advice eq 'P' AND DocumentStatus eq 'bost_Open'";
     let url = format!("{base_url}{uri}?{query}");
 
     let mut headers = HeaderMap::new();
@@ -268,60 +331,79 @@ async fn get_delivery_notes(
         HeaderValue::from_str(session_id).expect("Failed to create COOKIE header"),
     );
 
-    let response = client
-        .get(&url)
-        .headers(headers)
-        .send()
-        .await
-        .map_err(|e| anyhow!("Failed to request delivery notes: {e}"))?;
+    let response = match send_request(client, Method::GET, url.clone(), Bytes::new(), headers.clone()).await {
+        Ok(response) => {
+            if response.status().is_success() {
+                match response.json::<Root>().await {
+                    Ok(data) => {
+                        debug!("Successfully parsed delivery notes response JSON: {:#?}", data);
+                        data.orders
+                    },
+                    Err(err) => {
+                        error!("Failed to parse delivery notes response JSON: {err}");
+                        return Err(anyhow!("Failed to parse delivery notes response JSON: {err}"));
+                    }
+                }
+             } else {
+                error!("Failed to get delivery notes, status {}", response.status());
+                return Err(anyhow!("DeliveryNotes request failed with status {}", response.status()));
+            }
+        },
+        Err(err) => {
+            error!("Failed to send request for delivery notes: {err}");
+            return Err(anyhow!("Failed to send request for delivery notes: {err}"));
+        }
+    };
 
-    if !response.status().is_success() {
-        error!("Failed to get delivery notes, status {}", response.status());
-        return Err(anyhow!("DeliveryNotes request failed"));
+    let order_vec: Vec<serde_json::Value> = response
+            .as_array()
+            .cloned()
+            .expect("Failed to convert order result to array");
+    if order_vec.is_empty() {
+            // if response.orders.is_empty() {
+            warn!("No orders found.");
+    } else {
+        for mut order in order_vec.into_iter() {
+            let now = Local::now();
+            let doc_num = order
+                .get("DocNum")
+                .and_then(|value| value.as_i64())
+                .unwrap_or(0);
+            let filename = format!("delivery_notes_{}_{}.xml", now.format("%Y%m%d%H%M%S"), doc_num);
+            let path = output_dir.join(filename);
+                    if let Some(doc_entry) = order.get("DocEntry").and_then(|value| value.as_u64()) {
+                match get_tracking_by_doc_entry(sap_pool, doc_entry).await {
+                    Ok(tracking_items) if !tracking_items.is_empty() => {
+                        if let Some(obj) = order.as_object_mut() {
+                            let tracking_value = serde_json::to_value(&tracking_items)
+                                .map_err(|e| anyhow!("Failed to serialize tracking data: {e}"))?;
+                            obj.insert("Tracking".to_string(), tracking_value);
+                        }
+                    }
+                    Ok(_) => {
+                        debug!("No tracking rows found for DocEntry {}", doc_entry);
+                    }
+                    Err(err) => {
+                        warn!("Failed to load tracking for DocEntry {}: {}", doc_entry, err);
+                    }
+                }
+            }
+
+            let mut order_xml = to_string_with_root("root", &order).expect("Failed to serialize to XML");
+            order_xml = order_xml
+                .replace("\r\n ", " ")
+                .replace("\r\n", " ")
+                .replace("\r ", " ")
+                .replace("\n ", " ")
+                .replace(['\r', '\n'], " ");
+
+            tokio::fs::write(&path, order_xml).await.map_err(|e| anyhow!("Unable to write XML file: {e}"))?;
+            info!("Saved delivery notes XML to {}", path.display());
+        }
     }
 
-    let text = response
-        .text()
-        .await
-        .map_err(|e| anyhow!("Failed to read delivery notes body: {e}"))?;
-
-    let json: Value = serde_json::from_str(&text)
-        .map_err(|e| anyhow!("Failed to parse JSON: {e}"))?;
-
-    tokio::fs::create_dir_all(output_dir)
-        .await
-        .map_err(|e| anyhow!("Failed to create output directory: {e}"))?;
-
-    let now = Local::now();
-    let json_filename = format!("delivery_notes_{}.json", now.format("%Y%m%d%H%M%S"));
-    let json_path = output_dir.join(json_filename);
-    let pretty = serde_json::to_string_pretty(&json)
-        .map_err(|e| anyhow!("Failed to serialize JSON: {e}"))?;
-    tokio::fs::write(&json_path, pretty)
-        .await
-        .map_err(|e| anyhow!("Failed to write output file: {e}"))?;
-
-    info!("Saved delivery notes JSON to {}", json_path.display());
-
-    let mut order_xml = to_string_with_root("root", &json)
-        .map_err(|e| anyhow!("Failed to serialize JSON to XML: {e}"))?;
-
-    order_xml = order_xml
-        .replace("\r\n ", " ")
-        .replace("\r\n", " ")
-        .replace("\r ", " ")
-        .replace("\n ", " ")
-        .replace(['\r', '\n'], " ");
-    order_xml.push('\n');
-
-    let xml_filename = format!("delivery_notes_{}.xml", now.format("%Y%m%d%H%M%S"));
-    let xml_path = output_dir.join(xml_filename);
-    tokio::fs::write(&xml_path, order_xml)
-        .await
-        .map_err(|e| anyhow!("Failed to write XML file: {e}"))?;
-
-    info!("Saved delivery notes XML to {}", xml_path.display());
-    Ok(json)
+    // info!("Saved delivery notes XML to {}", xml_path.display());
+    Ok(json!({"status": "success"}))
 }
 
 async fn send_request(
@@ -459,7 +541,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let session_id = Arc::new(["B1SESSION=", token.session_id.as_str()].concat());
 
     // Process delivery notes using DB query
-    let dn_resp = get_delivery_notes(&base_url, &session_id, &*client, &*dropping_path).await?;
+    let dn_resp = get_delivery_notes(&base_url, &session_id, &*client, &*dropping_path, &sap_pool).await?;
     let count = dn_resp.get("value").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
     info!("Retrieved {} delivery notes", count);
 

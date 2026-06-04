@@ -2,7 +2,9 @@
 // use serde_derive::Serialize;
 // use serde_json::Value;
 use serde::{Deserialize, Serialize};
+use serde::de::{self, Deserializer, Visitor};
 use serde_json::Value;
+use std::fmt;
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,6 +38,12 @@ pub struct Orders {
     pub doc_num: usize,
     #[serde(rename = "DocCurrency", skip_serializing_if = "Option::is_none")]
     pub doc_currency: Option<String>,
+    #[serde(
+        rename = "Tracking",
+        deserialize_with = "deserialize_option_single_or_vec",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub tracking: Option<Vec<Tracking>>,
 }
 /*
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize, skip_serializing_if = "Option::is_none")]
@@ -1719,4 +1727,199 @@ pub struct Token {
     pub version: Option<String>,
     #[serde(rename = "SessionTimeout", skip_serializing_if = "Option::is_none")]
     pub session_timeout: Option<i64>,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Tracking {
+    #[serde(rename = "U_LineNum")]
+    pub u_line_num: Option<i64>,
+
+    #[serde(
+        rename = "U_ItemCode",
+        default,
+        deserialize_with = "deserialize_option_string_from_number"
+    )]
+    pub u_item_code: Option<String>,
+
+    #[serde(
+        rename = "U_Quantity",
+        default,
+        deserialize_with = "deserialize_option_string_from_number"
+    )]
+    pub u_quantity: Option<String>,
+
+    #[serde(
+        rename = "U_CartonID",
+        default,
+        deserialize_with = "deserialize_option_string_from_number"
+    )]
+    pub u_carton_id: Option<String>,
+
+    #[serde(
+        rename = "U_ItemsPerCarton",
+        default,
+        deserialize_with = "deserialize_option_string_from_number"
+    )]
+    pub u_items_per_carton: Option<String>,
+
+    #[serde(
+        rename = "U_CartonQuantity",
+        default,
+        deserialize_with = "deserialize_option_string_from_number"
+    )]
+    pub u_carton_quantity: Option<String>,
+
+    #[serde(
+        rename = "U_TrackingID",
+        default,
+        deserialize_with = "deserialize_option_string_from_number"
+    )]
+    pub u_tracking_id: Option<String>,
+
+    #[serde(
+        rename = "U_UCC128",
+        default,
+        deserialize_with = "deserialize_option_string_from_number"
+    )]
+    pub u_ucc128: Option<String>,
+
+    #[serde(
+        rename = "U_DocEntry",
+        default,
+        deserialize_with = "deserialize_option_string_from_number"
+    )]
+    pub u_doc_entry: Option<String>,
+
+    #[serde(
+        rename = "U_PackLevelType",
+        default,
+        deserialize_with = "deserialize_option_string_from_number"
+    )]
+    pub u_pack_level_type: Option<String>,
+
+    #[serde(
+        rename = "U_UPalletSSCC",
+        default,
+        deserialize_with = "deserialize_option_string_from_number"
+    )]
+    pub u_upallet_sscc: Option<String>,
+
+    #[serde(
+        rename = "U_ShippingType",
+        default,
+        deserialize_with = "deserialize_option_string_from_number"
+    )]
+    pub u_shipping_type: Option<String>,
+
+    #[serde(
+        rename = "U_LotNumber",
+        default,
+        deserialize_with = "deserialize_option_string_from_number"
+    )]
+    pub u_lot_number: Option<String>,
+
+    #[serde(
+        rename = "U_PalletCount",
+        default,
+        deserialize_with = "deserialize_option_string_from_number"
+    )]
+    pub u_pallet_count: Option<String>,
+
+    #[serde(
+        rename = "U_EstDeliveryDate",
+        default,
+        deserialize_with = "deserialize_option_string_from_number"
+    )]
+    pub u_est_del: Option<String>,
+
+}
+
+
+pub fn deserialize_option_string_from_number<'de, D>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value: Option<Value> = Option::deserialize(deserializer)?;
+
+    match value {
+        Some(Value::Number(num)) => Ok(Some(num.to_string())),
+        Some(Value::String(s)) => Ok(Some(s)),
+        Some(Value::Null) => Ok(None),
+        None => Ok(None),
+        Some(_) => Err(de::Error::custom("Expected a number or string")),
+    }
+}
+
+pub fn deserialize_number_or_string_to_option_string<'de, D>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let val = Option::<Value>::deserialize(deserializer)?;
+
+    Ok(match val {
+        None => None,
+        Some(Value::Null) => None,
+        Some(Value::String(s)) => Some(s),
+        Some(Value::Number(n)) => Some(n.to_string()),
+        Some(other) => Some(other.to_string()),
+    })
+}
+
+pub fn deserialize_option_single_or_vec<'de, D, T>(
+    deserializer: D,
+) -> Result<Option<Vec<T>>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    struct SingleOrVec<T>(std::marker::PhantomData<T>);
+
+    impl<'de, T> Visitor<'de> for SingleOrVec<T>
+    where
+        T: Deserialize<'de>,
+    {
+        type Value = Option<Vec<T>>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("null, a single item, or a sequence")
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_unit<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_seq<A>(self, seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: de::SeqAccess<'de>,
+        {
+            let vec = Deserialize::deserialize(de::value::SeqAccessDeserializer::new(seq))?;
+            Ok(Some(vec))
+        }
+
+        fn visit_map<A>(self, map: A) -> Result<Self::Value, A::Error>
+        where
+            A: de::MapAccess<'de>,
+        {
+            // Handle single item case
+            let value = Deserialize::deserialize(de::value::MapAccessDeserializer::new(map))?;
+            Ok(Some(vec![value]))
+        }
+    }
+
+    deserializer.deserialize_any(SingleOrVec(std::marker::PhantomData))
 }

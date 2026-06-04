@@ -23,3 +23,4 @@ chrono = "0.4"
 serde-xml-rs = "0.5"
 hyper = "1.9.0"
 quick-xml = { version = "0.38.4", features = ["serialize"] }
+bytes = "1.11.1"
