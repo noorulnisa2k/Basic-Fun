@@ -1,0 +1,27 @@
+[package]
+name = "basicfun810"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dotenv = "0.15"
+clap = { version = "4", features = ["derive"] }
+futures = "0.3"
+bb8 = "0.9.1"
+bb8-tiberius = "0.16.0"
+tiberius = "0.12"
+reqwest = { version = "0.11", features = ["blocking", "json", "cookies", "cookie_store"] }
+reqwest-middleware = { version = "0.4.2", features = ["json", "rustls-tls"] }
+reqwest-retry = "0.7.0"
+chrono = "0.4"
+serde-xml-rs = "0.5"
+hyper = "1.9.0"
+quick-xml = { version = "0.38.4", features = ["serialize"] }
+bytes = "1.11.1"
+

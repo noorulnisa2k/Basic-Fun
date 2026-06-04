@@ -96,6 +96,13 @@ pub struct Orders {
 
     #[serde(rename = "U_U_Department", skip_serializing_if = "Option::is_none")]
     pub u_u_department: Option<i64>,
+
+    #[serde(rename = "U_BeginWindowDate", skip_serializing_if = "Option::is_none")]
+    pub u_begin_window_date: Option<String>,
+
+    #[serde(rename = "U_EndWindowDate", skip_serializing_if = "Option::is_none")]
+    pub u_end_window_date: Option<String>,
+
 }
 
 
@@ -176,17 +183,11 @@ pub struct DocumentLine {
     #[serde(rename = "TaxCode", skip_serializing_if = "Option::is_none")]
     pub tax_code: Option<String>,
 
-    #[serde(rename = "U_ACW_DeliveryFrom", default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_option_string_from_number")]
+    #[serde(rename = "U_ACW_DeliveryFrom", skip_serializing_if = "Option::is_none")]
     pub u_acw_delivery_from: Option<String>,
 
-    #[serde(rename = "U_ACW_DeliveryEnd", default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_option_string_from_number")]
+    #[serde(rename = "U_ACW_DeliveryEnd", skip_serializing_if = "Option::is_none")]
     pub u_acw_delivery_end: Option<String>,
-
-    #[serde(rename = "U_BeginWindowDate", default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_option_string_from_number")]
-    pub u_begin_window_date: Option<String>,
-
-    #[serde(rename = "U_EndWindowDate", default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_option_string_from_number")]
-    pub u_end_window_date: Option<String>,
 
     #[serde(rename = "U_TBD_Cust_No", skip_serializing_if = "Option::is_none")]
     pub u_tbd_cust_no: Option<String>,

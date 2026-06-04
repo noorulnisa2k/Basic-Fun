@@ -375,9 +375,9 @@ async fn enrich_order_with_ship_scac(
     order.u_transportation_code = Some(trnsp_code_str.clone());
     order.u_ship_scac = Some(trnsp_code_str);
     order.trnsp_code = Some(trnsp_code_i16.into());
-    order.u_scac = Some(scac_u);
+    // order.u_scac = Some(scac_u);
     order.u_ship_via_acct = Some(ship_via_acct);
-    order.u_account_zip = Some(account_zip);
+    order.u_account_zip = Some(account_zip.clone());
 
     // Extract U_SCAC and U_Account_No from the query result and populate the order
     let u_scac_opt: Option<String> = match row.try_get::<&str, _>("U_SCAC") {
@@ -628,16 +628,19 @@ async fn update_order_shipping_remarks(
             CAST(O.TrnspCode AS VARCHAR(20))
             + '|'
             + ISNULL(O.TrnspName, '')
-            + ' ||| Ship Window: '
+            + '| Account#' +
+            + COALESCE(T0.U_Account_No,  '')
+            + ' || Ship Window: '
             + CONVERT(VARCHAR(10), GETDATE(), 110)
             + '(Begin)'
             + ' to '
             + CONVERT(VARCHAR(10), GETDATE(), 110)
-            + '(End)'
-        AS sapShippingInstructions
+            + '(End)' AS sapShippingInstructions
         FROM OCRD C
         LEFT JOIN OSHP O
             ON C.ShipType = O.TrnspCode
+        LEFT JOIN [@ECSB1_SHIPVIA] T0
+            ON T0.U_SCAC = O.TrnspCode
         WHERE C.CardCode = @P1
     "#;
 
