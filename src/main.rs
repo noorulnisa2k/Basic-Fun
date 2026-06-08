@@ -352,11 +352,11 @@ async fn enrich_order_with_ship_scac(
         .map_err(|err| anyhow!("Failed to parse TrnspName: {err}"))?
         .ok_or_else(|| anyhow!("TrnspName is NULL in the database"))?
         .to_string();
-    let scac_u: String = row
-        .try_get::<&str, _>("U_SCAC")
-        .map_err(|err| anyhow!("Failed to parse U_SCAC: {err}"))?
-        .ok_or_else(|| anyhow!("U_SCAC is NULL in the database"))?
-        .to_string();
+    // let scac_u: String = row
+    //     .try_get::<&str, _>("U_SCAC")
+    //     .map_err(|err| anyhow!("Failed to parse U_SCAC: {err}"))?
+    //     .ok_or_else(|| anyhow!("U_SCAC is NULL in the database"))?
+    //     .to_string();
     let ship_via_acct: String = row
         .try_get::<&str, _>("U_Account_No")
         .map_err(|err| anyhow!("Failed to parse U_Account_No: {err}"))?
@@ -369,7 +369,7 @@ async fn enrich_order_with_ship_scac(
         .ok_or_else(|| anyhow!("U_Account_Zipcode is NULL in the database"))?
         .to_string();
 
-    info!("TrnspName: {}, trnsp_code_i16: {}, scac_u: {}, ship_via_acct: {}, account_zip: {}", trnsp_name, trnsp_code_i16, scac_u, ship_via_acct, account_zip);
+    info!("TrnspName: {}", trnsp_name);
 
     let trnsp_code_str = trnsp_code_i16.to_string();
     order.u_transportation_code = Some(trnsp_code_str.clone());
@@ -616,6 +616,8 @@ async fn update_order_shipping_remarks(
     sap_pool: &Arc<Pool<bb8_tiberius::ConnectionManager>>,
     card_code: &str,
     doc_num: i64,
+    begin_window: &Option<String>,
+    end_window: &Option<String>,
 ) -> Result<(), anyhow::Error> {
     info!(
         "Updating shipping remarks for DocNum: {}, CardCode: {}",
@@ -625,42 +627,67 @@ async fn update_order_shipping_remarks(
     // Query for shipping instructions
     let query = r#"
         SELECT
-            CAST(O.TrnspCode AS VARCHAR(20))
-            + '|'
-            + ISNULL(O.TrnspName, '')
-            + '| Account#' +
-            + COALESCE(T0.U_Account_No,  '')
-            + ' || Ship Window: '
-            + CONVERT(VARCHAR(10), GETDATE(), 110)
-            + '(Begin)'
-            + ' to '
-            + CONVERT(VARCHAR(10), GETDATE(), 110)
-            + '(End)' AS sapShippingInstructions
-        FROM OCRD C
-        LEFT JOIN OSHP O
-            ON C.ShipType = O.TrnspCode
+            O."TrnspCode", O."TrnspName", T0."U_Account_No", T0."U_Account_Zipcode"
+        FROM OSHP O
         LEFT JOIN [@ECSB1_SHIPVIA] T0
-            ON T0.U_SCAC = O.TrnspCode
-        WHERE C.CardCode = @P1
+            ON T0."U_SCAC" = O.TrnspCode
+        WHERE T0.U_CardCode = @P1
     "#;
 
+    // let account_query ="SELECT U_BeginWindowDate, U_EndWindowDate FROM ORDR WHERE DocNum = @P1";
+    
+    let mut query_results = String::new();
+
     info!("Fetching shipping instructions for CardCode: {}", card_code);
-    let rows = send_query(sap_pool, query, &[&card_code])
+    let query_rows = send_query(sap_pool, query, &[&card_code])
         .await
         .map_err(|e| anyhow!("Failed to query shipping instructions: {e}"))?;
+    info!("Shipping instructions query returned {:#?}", &query_rows);
+    // let ordr_rows = send_query(sap_pool, account_query, &[&doc_num])
+    //     .await
+    //     .map_err(|e| anyhow!("Failed to query order details: {e}"))?;
+    // info!("Order details query returned {:#?}", &ordr_rows);
+    match query_rows.first() {
+        Some(row) => {
+            let trnsp_code: Option<&str> = row.try_get("TrnspCode").unwrap_or(None);
+            let trnsp_name: Option<&str> = row.try_get("TrnspName").unwrap_or(None);
+            let account_no: Option<&str> = row.try_get("U_Account_No").unwrap_or(None);
+            // let account_zip: Option<&str> = row.try_get("U_Account_Zipcode").unwrap_or(None);
+            query_results = format!(
+                "{:?}|{:?}|Account# {:?}", trnsp_code, trnsp_name, account_no
+            );
+            // info!("Shipping Instructions - TrnspCode: {:?}, TrnspName: {:?}, AccountNo: {:?}, AccountZip: {:?}", trnsp_code, trnsp_name, account_no, account_zip);
+        }
+        None => {
+            error!("No shipping instructions found for CardCode: {}", card_code);
+            // return Err(anyhow!("No shipping instructions found for CardCode: {}", card_code));
+        }
+    }
+    query_results = format!("{:?}| Ship Window: {:?}(Begin) to {:?}(End)", query_results, begin_window, end_window);
 
-    let row = rows
-        .into_iter()
-        .next()
-        .ok_or_else(|| anyhow!("No shipping instruction found for card_code {card_code}"))?;
+    // match ordr_rows.first(){
+    //     Some(row) =>{
+    //         let shipping_begin : Option<&str> = row.try_get("U_BeginWindowDate").unwrap_or(None);
+    //         let shipping_end : Option<&str> = row.try_get("U_EndWindowDate").unwrap_or(None);
+    //         query_results = format!("{:?}| Ship Window: {:?}(Begin) to {:?}(End)", query_results, shipping_begin, shipping_end);
+    //     }
+    //     None => {
+    //         error!("No shipping instructions found for CardCode: {}", card_code);
+    //         // return Err(anyhow!("No shipping instructions found for CardCode: {}", card_code));
+    //     }
+    // }
+    // let row = rows
+    //     .into_iter()
+    //     .next()
+    //     .ok_or_else(|| anyhow!("No shipping instruction found for card_code {card_code}"))?;
 
-    let shipping_remarks: String = row
-        .try_get::<&str, _>("sapShippingInstructions")
-        .map_err(|err| anyhow!("Failed to parse sapShippingInstructions: {err}"))?
-        .ok_or_else(|| anyhow!("sapShippingInstructions is NULL in the database"))?
-        .to_string();
+    // let shipping_remarks: String = row
+    //     .try_get::<&str, _>("sapShippingInstructions")
+    //     .map_err(|err| anyhow!("Failed to parse sapShippingInstructions: {err}"))?
+    //     .ok_or_else(|| anyhow!("sapShippingInstructions is NULL in the database"))?
+    //     .to_string();
 
-    info!("Fetched shipping remarks: {}", shipping_remarks);
+    // info!("Fetched shipping remarks: {}", shipping_remarks);
 
     // Update the order with shipping remarks
     let update_query = r#"
@@ -669,8 +696,8 @@ async fn update_order_shipping_remarks(
         WHERE DocNum = @P2
     "#;
 
-    info!("Updating ORDR table DocNum: {} with remarks", doc_num);
-    send_query(sap_pool, update_query, &[&shipping_remarks, &doc_num])
+    info!("Updating ORDER table DocNum: {} with remarks", doc_num);
+    send_query(sap_pool, update_query, &[&query_results, &doc_num])
         .await
         .map_err(|e| anyhow!("Failed to update order shipping remarks: {e}"))?;
 
@@ -784,7 +811,7 @@ async fn process_file(
         Ok(created) => {
             // Update order with shipping remarks
             if let Err(err) =
-                update_order_shipping_remarks(&sap_pool, &order_data.card_code, created.doc_num)
+                update_order_shipping_remarks(&sap_pool, &order_data.card_code, created.doc_num, &order_data.u_begin_window_date, &order_data.u_end_window_date)
                     .await
             {
                 error!(
