@@ -320,7 +320,7 @@ async fn get_invoices(
     output_dir: &std::path::Path,
     sap_pool: &Arc<Pool<bb8_tiberius::ConnectionManager>>,
 ) -> Result<Value> {
-    let uri = "/Invoices";
+    let uri = "/DeliveryNotes";
     let query = "$filter=U_945_Advice eq 'P' AND DocumentStatus eq 'bost_Open'";
     let url = format!("{base_url}{uri}?{query}");
 
@@ -371,25 +371,89 @@ async fn get_invoices(
                 .unwrap_or(0);
             let filename = format!("invoices_{}_{}.xml", now.format("%Y%m%d%H%M%S"), doc_num);
             let path = output_dir.join(filename);
-                    if let Some(doc_entry) = order.get("DocEntry").and_then(|value| value.as_u64()) {
-                match get_tracking_by_doc_entry(sap_pool, doc_entry).await {
-                    Ok(tracking_items) if !tracking_items.is_empty() => {
-                        if let Some(obj) = order.as_object_mut() {
-                            let tracking_value = serde_json::to_value(&tracking_items)
-                                .map_err(|e| anyhow!("Failed to serialize tracking data: {e}"))?;
-                            obj.insert("Tracking".to_string(), tracking_value);
-                        }
-                    }
-                    Ok(_) => {
-                        debug!("No tracking rows found for DocEntry {}", doc_entry);
-                    }
-                    Err(err) => {
-                        warn!("Failed to load tracking for DocEntry {}: {}", doc_entry, err);
-                    }
+            // if let Some(doc_entry) = order.get("DocEntry").and_then(|value| value.as_u64()) {
+            //     match get_tracking_by_doc_entry(sap_pool, doc_entry).await {
+            //         Ok(tracking_items) if !tracking_items.is_empty() => {
+            //             if let Some(obj) = order.as_object_mut() {
+            //                 let tracking_value = serde_json::to_value(&tracking_items)
+            //                     .map_err(|e| anyhow!("Failed to serialize tracking data: {e}"))?;
+            //                 obj.insert("Tracking".to_string(), tracking_value);
+            //             }
+            //         }
+            //         Ok(_) => {
+            //             debug!("No tracking rows found for DocEntry {}", doc_entry);
+            //         }
+            //         Err(err) => {
+            //             warn!("Failed to load tracking for DocEntry {}: {}", doc_entry, err);
+            //         }
+            //     }
+            // }
+
+            let doc_entry = order.get("DocEntry").cloned();
+            let doc_lines: Vec<Value> = order
+                .get("DocumentLines")
+                .and_then(|v| v.as_array())
+                .map(|lines| {
+                    lines
+                        .iter()
+                        .enumerate()
+                        .map(|(i, _)| {
+                            json!({
+                                "BaseType": 15,
+                                "BaseEntry": doc_entry.clone().unwrap_or(Value::Null),
+                                "BaseLine": i
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            fn trim_sap_date(val: Option<&Value>) -> Value {
+                match val.and_then(|v| v.as_str()) {
+                    Some(s) => Value::String(s.chars().take(10).collect()),
+                    None => Value::Null,
                 }
             }
 
-            let mut order_xml = to_string_with_root("root", &order).expect("Failed to serialize to XML");
+            let extracted = json!({
+                "DocDate": trim_sap_date(order.get("DocDate")),
+                "DocDueDate": trim_sap_date(order.get("DocDueDate")),
+                "CardCode": order.get("CardCode"),
+                "NumAtCard": order.get("NumAtCard"),
+                "SalesPersonCode": order.get("SalesPersonCode"),
+                "TransportationCode": order.get("TransportationCode"),
+                // "Series": order.get("Series"),
+                "BPL_IDAssignedToInvoice": order.get("BPL_IDAssignedToInvoice"),
+                "U_TBD_SI_Remarks": order.get("U_TBD_SI_Remarks"),
+                "U_TBD_SA_Remarks": order.get("U_TBD_SA_Remarks"),
+                "DocumentLines": doc_lines,
+                // "DocumentAdditionalExpenses": order.get("DocumentAdditionalExpenses")
+                "AddressExtension": order.get("AddressExtension"),
+            });
+
+            let post_body = serde_json::to_vec(&extracted)?;
+            info!("extracted: {:?}", extracted);
+            info!("post_body: {}", String::from_utf8_lossy(&post_body));
+            let mut post_headers = HeaderMap::new();
+            post_headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            post_headers.insert(
+                COOKIE,
+                HeaderValue::from_str(session_id).expect("Failed to create COOKIE header"),
+            );
+            let invoices_url = format!("{base_url}/Invoices");
+
+            match send_request(client, Method::POST, invoices_url, Bytes::from(post_body), post_headers).await {
+                Ok(post_resp) => {
+                    let status = post_resp.status();
+                    let body_text = post_resp.text().await.unwrap_or_default();
+                    info!("Invoices POST response [{}]: {}", status, body_text);
+                }
+                Err(err) => {
+                    error!("Failed to POST to Invoices: {err}");
+                }
+            }
+
+            let mut order_xml = to_string_with_root("root", &extracted).expect("Failed to serialize to XML");
             order_xml = order_xml
                 .replace("\r\n ", " ")
                 .replace("\r\n", " ")

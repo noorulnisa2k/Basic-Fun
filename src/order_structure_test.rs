@@ -103,6 +103,12 @@ pub struct Orders {
     #[serde(rename = "U_EndWindowDate", skip_serializing_if = "Option::is_none")]
     pub u_end_window_date: Option<String>,
 
+    #[serde(rename = "U_OQ_REF_VALUE", skip_serializing_if = "Option::is_none")]
+    pub u_oq_ref_value: Option<String>,
+
+    #[serde(rename = "U_SHIP_INTERSTAT", skip_serializing_if = "Option::is_none")]
+    pub u_ship_interstat: Option<String>
+
 }
 
 

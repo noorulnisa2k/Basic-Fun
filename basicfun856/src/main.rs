@@ -321,7 +321,7 @@ async fn get_delivery_notes(
     sap_pool: &Arc<Pool<bb8_tiberius::ConnectionManager>>,
 ) -> Result<Value> {
     let uri = "/DeliveryNotes";
-    let query = "$filter=U_945_Advice eq 'P' AND DocumentStatus eq 'bost_Open'";
+    let query = "$filter=U_945_Advice eq 'Y' AND DocumentStatus eq 'bost_Open'";
     let url = format!("{base_url}{uri}?{query}");
 
     let mut headers = HeaderMap::new();
@@ -399,6 +399,30 @@ async fn get_delivery_notes(
 
             tokio::fs::write(&path, order_xml).await.map_err(|e| anyhow!("Unable to write XML file: {e}"))?;
             info!("Saved delivery notes XML to {}", path.display());
+
+            // update status to 'P' for processed orders
+            if let Some(doc_entry) = order.get("DocEntry").and_then(|value| value.as_u64()) {
+                let patch_uri = format!("/DeliveryNotes({})", doc_entry);
+                let patch_url = format!("{base_url}{patch_uri}");
+                let patch_body = serde_json::to_vec(&json!({"U_945_Advice": "P"})).map_err(|e| anyhow!("Failed to serialize PATCH body: {e}"))?;
+
+                let mut patch_headers = HeaderMap::new();
+                patch_headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+                patch_headers.insert(COOKIE, HeaderValue::from_str(session_id).expect("Failed to create COOKIE header"));
+
+                match send_request(client, Method::PATCH, patch_url, Bytes::from(patch_body), patch_headers).await {
+                    Ok(response) => {
+                        if response.status().is_success() {
+                            info!("Updated U_945_Advice to 'P' for DocEntry {}", doc_entry);
+                        } else {
+                            warn!("Failed to update U_945_Advice for DocEntry {}: status {}", doc_entry, response.status());
+                        }
+                    }
+                    Err(err) => {
+                        warn!("Failed to send PATCH request for DocEntry {}: {}", doc_entry, err);
+                    }
+                }
+            }
         }
     }
 
