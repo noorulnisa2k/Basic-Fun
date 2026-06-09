@@ -23,7 +23,14 @@ use tracing::{debug, error, info};
 use anyhow::{anyhow, Result};
 
 use roxmltree_to_serde::{xml_str_to_json, Config, NullValue};
-use std::{fs::File, io::Read, path::Path, path::PathBuf, sync::Arc};
+use std::{
+    fs::{File, OpenOptions},
+    io::Read,
+    path::Path,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
+use tracing_subscriber::fmt::MakeWriter;
 
 const THREADS: usize = 8;
 
@@ -38,6 +45,21 @@ struct Args {
 
     #[arg(long)]
     error_dir: PathBuf,
+
+    #[arg(long)]
+    logs_dir: PathBuf,
+}
+
+struct LogFileWriter {
+    file: Mutex<File>,
+}
+
+impl<'a> MakeWriter<'a> for LogFileWriter {
+    type Writer = File;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        self.file.lock().unwrap().try_clone().unwrap()
+    }
 }
 
 pub struct FullRetryableStrategy;
@@ -618,6 +640,7 @@ async fn update_order_shipping_remarks(
     doc_num: i64,
     begin_window: &Option<String>,
     end_window: &Option<String>,
+    account_no: &Option<String>,
 ) -> Result<(), anyhow::Error> {
     info!(
         "Updating shipping remarks for DocNum: {}, CardCode: {}",
@@ -625,14 +648,23 @@ async fn update_order_shipping_remarks(
     );
 
     // Query for shipping instructions
+    // let query = r#"
+    //     SELECT
+    //         O."TrnspCode", O."TrnspName", T0."U_Account_No", T0."U_Account_Zipcode"
+    //     FROM OSHP O
+    //     LEFT JOIN [@ECSB1_SHIPVIA] T0
+    //         ON T0."U_SCAC" = O.TrnspCode
+    //     WHERE T0.U_CardCode = @P1
+    // "#;
+
     let query = r#"
         SELECT
-            O."TrnspCode", O."TrnspName", T0."U_Account_No", T0."U_Account_Zipcode"
+            O.TrnspCode, O.TrnspName
         FROM OSHP O
-        LEFT JOIN [@ECSB1_SHIPVIA] T0
-            ON T0."U_SCAC" = O.TrnspCode
-        WHERE T0.U_CardCode = @P1
-    "#;
+        INNER JOIN OCRD T0
+            ON T0.ShipType = O.TrnspCode
+        WHERE
+            T0."CardCode" = @P1"#;
 
     // let account_query ="SELECT U_BeginWindowDate, U_EndWindowDate FROM ORDR WHERE DocNum = @P1";
     
@@ -642,19 +674,22 @@ async fn update_order_shipping_remarks(
     let query_rows = send_query(sap_pool, query, &[&card_code])
         .await
         .map_err(|e| anyhow!("Failed to query shipping instructions: {e}"))?;
-    info!("Shipping instructions query returned {:#?}", &query_rows);
+    // info!("Shipping instructions query returned {:#?}", &query_rows);
     // let ordr_rows = send_query(sap_pool, account_query, &[&doc_num])
     //     .await
     //     .map_err(|e| anyhow!("Failed to query order details: {e}"))?;
     // info!("Order details query returned {:#?}", &ordr_rows);
     match query_rows.first() {
         Some(row) => {
-            let trnsp_code: Option<&str> = row.try_get("TrnspCode").unwrap_or(None);
+            let trnsp_code: Option<i16> = row.try_get("TrnspCode").unwrap_or(None);
             let trnsp_name: Option<&str> = row.try_get("TrnspName").unwrap_or(None);
-            let account_no: Option<&str> = row.try_get("U_Account_No").unwrap_or(None);
+            // let account_no: Option<&str> = row.try_get("U_Account_No").unwrap_or(None);
             // let account_zip: Option<&str> = row.try_get("U_Account_Zipcode").unwrap_or(None);
             query_results = format!(
-                "{:?}|{:?}|Account# {:?}", trnsp_code, trnsp_name, account_no
+                "{}|{}|Account# {}",
+                trnsp_code.map(|v| v.to_string()).unwrap_or_default(),
+                trnsp_name.as_deref().unwrap_or(""),
+                account_no.as_deref().unwrap_or("")
             );
             // info!("Shipping Instructions - TrnspCode: {:?}, TrnspName: {:?}, AccountNo: {:?}, AccountZip: {:?}", trnsp_code, trnsp_name, account_no, account_zip);
         }
@@ -663,7 +698,8 @@ async fn update_order_shipping_remarks(
             // return Err(anyhow!("No shipping instructions found for CardCode: {}", card_code));
         }
     }
-    query_results = format!("{:?}| Ship Window: {:?}(Begin) to {:?}(End)", query_results, begin_window, end_window);
+    query_results = format!("{}| Ship Window: {}(Begin) to {}(End)", query_results, begin_window.as_deref().unwrap_or(""), end_window.as_deref().unwrap_or(""));
+    info!("{}", query_results);
 
     // match ordr_rows.first(){
     //     Some(row) =>{
@@ -811,7 +847,7 @@ async fn process_file(
         Ok(created) => {
             // Update order with shipping remarks
             if let Err(err) =
-                update_order_shipping_remarks(&sap_pool, &order_data.card_code, created.doc_num, &order_data.u_begin_window_date, &order_data.u_end_window_date)
+                update_order_shipping_remarks(&sap_pool, &order_data.card_code, created.doc_num, &order_data.u_begin_window_date, &order_data.u_end_window_date, &order_data.u_ship_via_acct)
                     .await
             {
                 error!(
@@ -954,33 +990,39 @@ async fn process_files(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    dotenv::dotenv().ok();
+
+    let args = Args::parse();
+
+    // Create logs directory and set up log file
+    fs::create_dir_all(&args.logs_dir)?;
+    let log_path = args.logs_dir.join(format!(
+        "logs850_{}.log",
+        chrono::Local::now().format("%Y-%m-%d_%H-%M-%S")
+    ));
+    let log_file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)?;
+    let log_writer = LogFileWriter {
+        file: Mutex::new(log_file),
+    };
+
     // configuring logs
     tracing_subscriber::fmt()
+        .with_writer(log_writer)
         .with_ansi(false)
         .with_env_filter(EnvFilter::new("info,tiberius=warn"))
         .init();
-    dotenv::dotenv().ok();
 
-    // let args: Vec<String> = env::args().collect();
-
-    //    if args.len() < 4 {
-    //         eprintln!("Param Missing");
-    //         std::process::exit(1);
-    //     }
-    //     println!("{:?}, lenght: {}", args, args.len());
-
-    //     let input_dir = Path::new(&args[1]);
-    //     let output_dir = Path::new(&args[2]);
-    //     let error_dir = Path::new(&args[3]);
-
-    let args = Args::parse();
     let input_dir = Arc::new(args.input_dir);
     let output_dir = Arc::new(args.output_dir);
     let error_dir = Arc::new(args.error_dir);
 
-    info!("Input:  {}", input_dir.display());
-    info!("Output: {}", output_dir.display());
-    info!("Error:  {}", error_dir.display());
+    info!("Input:   {}", input_dir.display());
+    info!("Output:  {}", output_dir.display());
+    info!("Error:   {}", error_dir.display());
+    info!("Logs:    {} ({})", args.logs_dir.display(), log_path.display());
 
     let sap_pool = Arc::new(setup_db_pool("SAP_DB_CONN").await?);
 
@@ -1030,7 +1072,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 // /Users/noor/Public/Ecom/input_files /Users/noor/Public/Ecom/output_files /Users/noor/Public/Ecom/error_files
 // basic_fun.exe C:/Users/BasicFun/Desktop/test/input/ C:/Users/BasicFun/Desktop/test/output/ C:/Users/BasicFun/Desktop/test/error/
-// basic_fun.exe --input-dir "C:\Users\BasicFun\Desktop\test\input" --output-dir "C:\Users\BasicFun\Desktop\test\output" --error-dir "C:\Users\BasicFun\Desktop\test\error"
+// basic_fun.exe --input-dir "C:\Users\BasicFun\Desktop\test\input" --output-dir "C:\Users\BasicFun\Desktop\test\output" --error-dir "C:\Users\BasicFun\Desktop\test\error" --logs-dir "C:\Users\BasicFun\Desktop\test\logs"
 
 // 945 path:
 // basic_fun_945.exe --files-pickup-path C:\Users\BasicFun\Desktop\945\input --process-id 1234 --process-data-path C:\Users\BasicFun\Desktop\945\output --prism-path C:\Users\BasicFun\Desktop\945\error

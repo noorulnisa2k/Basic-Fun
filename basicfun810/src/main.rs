@@ -42,6 +42,9 @@ struct Args {
 
     #[arg(short, long)]
     error_process_data_path: PathBuf,
+
+    #[arg(short, long)]
+    log_path: PathBuf,
 }
 
 
@@ -396,12 +399,12 @@ async fn get_invoices(
                 .map(|lines| {
                     lines
                         .iter()
-                        .enumerate()
-                        .map(|(i, _)| {
+                        .map(|line| {
+                            let base_line = line.get("LineNum").and_then(|v| v.as_i64()).unwrap_or(0);
                             json!({
                                 "BaseType": 15,
                                 "BaseEntry": doc_entry.clone().unwrap_or(Value::Null),
-                                "BaseLine": i
+                                "BaseLine": base_line
                             })
                         })
                         .collect()
@@ -427,7 +430,19 @@ async fn get_invoices(
                 "U_TBD_SI_Remarks": order.get("U_TBD_SI_Remarks"),
                 "U_TBD_SA_Remarks": order.get("U_TBD_SA_Remarks"),
                 "DocumentLines": doc_lines,
-                // "DocumentAdditionalExpenses": order.get("DocumentAdditionalExpenses")
+                "DocumentAdditionalExpenses": order
+                    .get("DocumentAdditionalExpenses")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter().map(|exp| {
+                            json!({
+                                "ExpenseCode": exp.get("ExpenseCode"),
+                                "LineTotal": exp.get("LineTotal"),
+                                "TaxCode": exp.get("TaxCode"),
+                            })
+                        }).collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default(),
                 "AddressExtension": order.get("AddressExtension"),
             });
 
@@ -539,15 +554,24 @@ async fn send_request(
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    // configuring logs
-    tracing_subscriber::fmt()
-        .with_ansi(false)
-        .with_env_filter(EnvFilter::new("info,tiberius=warn"))
-        .init();
     dotenv().ok();
 
     // Clap Args
     let mut args = Args::parse();
+
+    // configuring logs
+    std::fs::create_dir_all(&args.log_path)?;
+    let now = Local::now();
+    let log_file_name = format!("logs810_{}.log", now.format("%Y%m%d_%H%M%S"));
+    let log_file = std::fs::File::create(args.log_path.join(&log_file_name))?;
+    let (non_blocking, _guard) = tracing_appender::non_blocking(log_file);
+
+    tracing_subscriber::fmt()
+        .with_ansi(false)
+        .with_writer(non_blocking)
+        .with_env_filter(EnvFilter::new("info,tiberius=warn"))
+        .init();
+
     let dropping_path = Arc::new(args.dropping_path);
     let now = Local::now();
     args.archive_path.push(now.format("%Y/%m/%d").to_string());
@@ -615,4 +639,4 @@ async fn main() -> Result<(), anyhow::Error> {
 }
 
 
-// basicfun810.exe --dropping-path "C:\Users\BasicFun\Desktop\810\output" --archive-path "C:\Users\BasicFun\Desktop\810\output" --process-id "1" --error-process-data-path "C:\Users\BasicFun\Desktop\810\error"
+// basicfun810.exe --dropping-path "C:\Users\BasicFun\Desktop\810\output" --archive-path "C:\Users\BasicFun\Desktop\810\output" --process-id "1" --error-process-data-path "C:\Users\BasicFun\Desktop\810\error" --log-path "C:\Users\BasicFun\Desktop\810\logs"
