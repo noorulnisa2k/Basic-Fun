@@ -422,10 +422,11 @@ async fn get_invoices(
                 "DocDate": trim_sap_date(order.get("DocDate")),
                 "DocDueDate": trim_sap_date(order.get("DocDueDate")),
                 "CardCode": order.get("CardCode"),
+                "Series": 82,
+                "TaxDate": trim_sap_date(order.get("TaxDate")),
                 "NumAtCard": order.get("NumAtCard"),
                 "SalesPersonCode": order.get("SalesPersonCode"),
                 "TransportationCode": order.get("TransportationCode"),
-                // "Series": order.get("Series"),
                 "BPL_IDAssignedToInvoice": order.get("BPL_IDAssignedToInvoice"),
                 "U_TBD_SI_Remarks": order.get("U_TBD_SI_Remarks"),
                 "U_TBD_SA_Remarks": order.get("U_TBD_SA_Remarks"),
@@ -439,6 +440,10 @@ async fn get_invoices(
                                 "ExpenseCode": exp.get("ExpenseCode"),
                                 "LineTotal": exp.get("LineTotal"),
                                 "TaxCode": exp.get("TaxCode"),
+                                "BaseDocEntry": order.get("DocEntry"),
+                                "BaseDocLine": exp.get("BaseDocLine"),
+                                "BaseDocType": 15,
+                                "BaseDocumentReference": order.get("DocNum"),
                             })
                         }).collect::<Vec<_>>()
                     })
@@ -638,5 +643,10 @@ async fn main() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
+// async fn insert_order_value(order: &mut Value, field_name: &str, value: &str) {
+//     if let Some(ord) = order.as_object_mut() {
+//         ord.insert(field_name.to_string(), json!(value));
+//     }
+// }
 
 // basicfun810.exe --dropping-path "C:\Users\BasicFun\Desktop\810\output" --archive-path "C:\Users\BasicFun\Desktop\810\output" --process-id "1" --error-process-data-path "C:\Users\BasicFun\Desktop\810\error" --log-path "C:\Users\BasicFun\Desktop\810\logs"
