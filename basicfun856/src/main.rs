@@ -42,6 +42,9 @@ struct Args {
 
     #[arg(short, long)]
     error_process_data_path: PathBuf,
+
+    #[arg(short, long)]
+    log_path: PathBuf,
 }
 
 
@@ -363,6 +366,14 @@ async fn get_delivery_notes(
             // if response.orders.is_empty() {
             warn!("No orders found.");
     } else {
+        // Print DocNum of each delivery note before processing
+        for order in &order_vec {
+            let doc_num = order
+                .get("DocNum")
+                .and_then(|value| value.as_i64())
+                .unwrap_or(0);
+            info!("Delivery note DocNum: {}", doc_num);
+        }
         for mut order in order_vec.into_iter() {
             let now = Local::now();
             let doc_num = order
@@ -412,10 +423,12 @@ async fn get_delivery_notes(
 
                 match send_request(client, Method::PATCH, patch_url, Bytes::from(patch_body), patch_headers).await {
                     Ok(response) => {
-                        if response.status().is_success() {
-                            info!("Updated U_945_Advice to 'P' for DocEntry {}", doc_entry);
+                        let status = response.status();
+                        let body = response.text().await.unwrap_or_default();
+                        if status.is_success() {
+                            info!("Updated U_945_Advice to 'P' for DocEntry {}: {}", doc_entry, body);
                         } else {
-                            warn!("Failed to update U_945_Advice for DocEntry {}: status {}", doc_entry, response.status());
+                            warn!("Failed to update U_945_Advice for DocEntry {}: status {} body {}", doc_entry, status, body);
                         }
                     }
                     Err(err) => {
@@ -499,15 +512,22 @@ async fn send_request(
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    // configuring logs
-    tracing_subscriber::fmt()
-        .with_ansi(false)
-        .with_env_filter(EnvFilter::new("info,tiberius=warn"))
-        .init();
     dotenv().ok();
 
     // Clap Args
     let mut args = Args::parse();
+
+    // configuring logs
+    tokio::fs::create_dir_all(&args.log_path).await?;
+    let log_file = args.log_path.join(format!("logs856_{}.log", Local::now().format("%Y%m%d_%H%M%S")));
+    let file = std::fs::File::create(&log_file)?;
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file);
+    tracing_subscriber::fmt()
+        .with_ansi(false)
+        .with_env_filter(EnvFilter::new("info,tiberius=warn"))
+        .with_writer(non_blocking)
+        .init();
+
     let dropping_path = Arc::new(args.dropping_path);
     let now = Local::now();
     args.archive_path.push(now.format("%Y/%m/%d").to_string());
@@ -575,4 +595,4 @@ async fn main() -> Result<(), anyhow::Error> {
 }
 
 
-// basicfun856.exe --dropping-path "C:\Users\BasicFun\Desktop\856\output" --archive-path "C:\Users\BasicFun\Desktop\856\output" --process-id "1" --error-process-data-path "C:\Users\BasicFun\Desktop\856\error"
+// basicfun856.exe --dropping-path "C:\Users\BasicFun\Desktop\856\output" --archive-path "C:\Users\BasicFun\Desktop\856\output" --process-id "1" --error-process-data-path "C:\Users\BasicFun\Desktop\856\error" --log-path "C:\Users\BasicFun\Desktop\856\logs"

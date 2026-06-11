@@ -462,18 +462,60 @@ async fn get_invoices(
             );
             let invoices_url = format!("{base_url}/Invoices");
 
-            match send_request(client, Method::POST, invoices_url, Bytes::from(post_body), post_headers).await {
+            let body_text = match send_request(client, Method::POST, invoices_url, Bytes::from(post_body), post_headers).await {
                 Ok(post_resp) => {
                     let status = post_resp.status();
-                    let body_text = post_resp.text().await.unwrap_or_default();
-                    info!("Invoices POST response [{}]: {}", status, body_text);
+                    let text = post_resp.text().await.unwrap_or_default();
+                    info!("Invoices POST response [{}]: {}", status, text);
+                    if !status.is_success() {
+                        error!("Invoice POST failed with status {}, skipping", status);
+                        continue;
+                    }
+                    text
                 }
                 Err(err) => {
-                    error!("Failed to POST to Invoices: {err}");
+                    error!("Failed to POST to Invoices: {err}, skipping");
+                    continue;
                 }
-            }
+            };
 
-            let mut order_xml = to_string_with_root("root", &extracted).expect("Failed to serialize to XML");
+            // adding some fields to the invoice JSON for XML output
+            let card_code = order.get("CardCode").and_then(|v| v.as_str()).unwrap_or("");
+            let query = format!(
+                "SELECT ExtraDays, VolumDscnt FROM OCTG T0 INNER JOIN OCRD T1 ON T0.GroupNum = T1.GroupNum WHERE T1.CardCode = '{}'",
+                card_code
+            );
+            let (extra_days, volum_dscnt) = match send_query(sap_pool, &query, &[]).await {
+                Ok(rows) => {
+                    if let Some(row) = rows.first() {
+                        let ed = row.get::<i16, _>("ExtraDays").unwrap_or(0) as i32;
+                        let vd = row.try_get::<Numeric, _>("VolumDscnt").ok().flatten().map(|v| v.to_string()).unwrap_or_else(|| "0".to_string());
+                        (ed, vd)
+                    } else {
+                        (0, "0".to_string())
+                    }
+                }
+                Err(err) => {
+                    error!("Failed to query OCTG/OCRD: {err}");
+                    (0, "0".to_string())
+                }
+            };
+
+            let mut invoice_value: Value = serde_json::from_str(&body_text).unwrap_or(Value::Null);
+            insert_order_value(&mut invoice_value, "U_TermDiscountPercent", &volum_dscnt.to_string()).await;
+            insert_order_value(&mut invoice_value, "U_TermsNetDays", &extra_days.to_string()).await;
+            insert_order_value(
+                &mut invoice_value,
+                "CustomerPONUM",
+                order.get("NumAtCard").and_then(|v| v.as_str()).unwrap_or(""),
+            ).await;
+            insert_order_value(
+                &mut invoice_value,
+                "CustomerREFOQvalue",
+                order.get("U_OQ_REF_VALUE").and_then(|v| v.as_str()).unwrap_or(""),
+            ).await;
+
+            let mut order_xml = to_string_with_root("root", &invoice_value).expect("Failed to serialize to XML");
             order_xml = order_xml
                 .replace("\r\n ", " ")
                 .replace("\r\n", " ")
@@ -613,8 +655,8 @@ async fn main() -> Result<(), anyhow::Error> {
 
     // Configure retry policy
     let retry_policy = ExponentialBackoff::builder()
-        .retry_bounds(Duration::from_millis(100), Duration::from_secs(30))
-        .build_with_total_retry_duration(Duration::from_secs(2 * 60));
+        .retry_bounds(Duration::from_millis(200), Duration::from_secs(1))
+        .build_with_max_retries(2);
 
     let ret_s =
         RetryTransientMiddleware::new_with_policy_and_strategy(retry_policy, FullRetryableStrategy);
@@ -643,10 +685,10 @@ async fn main() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-// async fn insert_order_value(order: &mut Value, field_name: &str, value: &str) {
-//     if let Some(ord) = order.as_object_mut() {
-//         ord.insert(field_name.to_string(), json!(value));
-//     }
-// }
+async fn insert_order_value(order: &mut Value, field_name: &str, value: &str) {
+    if let Some(ord) = order.as_object_mut() {
+        ord.insert(field_name.to_string(), json!(value));
+    }
+}
 
 // basicfun810.exe --dropping-path "C:\Users\BasicFun\Desktop\810\output" --archive-path "C:\Users\BasicFun\Desktop\810\output" --process-id "1" --error-process-data-path "C:\Users\BasicFun\Desktop\810\error" --log-path "C:\Users\BasicFun\Desktop\810\logs"
