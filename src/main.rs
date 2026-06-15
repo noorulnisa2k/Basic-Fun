@@ -1,5 +1,7 @@
 mod order_structure_test;
 use order_structure_test::{Orders, Token};
+mod prism_structure;
+use prism_structure::{Agency, Output};
 
 use clap::Parser;
 use serde_json::Value;
@@ -8,7 +10,9 @@ use std::fs;
 use std::time::{Duration, Instant};
 
 use futures::future::join_all;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
+use std::collections::HashMap;
 use std::error::Error;
 use tokio::sync::Semaphore;
 use tracing_subscriber::EnvFilter;
@@ -41,13 +45,22 @@ struct Args {
     input_dir: PathBuf,
 
     #[arg(long)]
-    output_dir: PathBuf,
+    archive_dir: PathBuf,
 
     #[arg(long)]
     error_dir: PathBuf,
 
     #[arg(long)]
     logs_dir: PathBuf,
+
+    #[arg(long)]
+    prism_path: PathBuf,
+
+    #[arg(long)]
+    process_data_path: PathBuf,
+
+    #[arg(short, long)]
+    process_id: String,
 }
 
 struct LogFileWriter {
@@ -209,6 +222,42 @@ fn classify_io_error(error: &std::io::Error) -> Retryable {
         }
         _ => Retryable::Fatal,
     }
+}
+
+fn fetch_prism_data(process_data_path: &Path) -> Result<HashMap<String, String>> {
+    let mut file_map = HashMap::new();
+    for entry in fs::read_dir(process_data_path)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_file() {
+            let contents = fs::read_to_string(&path)?;
+            let output: Output = match quick_xml::de::from_str(&contents) {
+                Ok(o) => o,
+                Err(err) => {
+                    error!("Failed to parse prism data {}: {err}", path.display());
+                    continue;
+                }
+            };
+            if let Some(erp) = output.erp_file_name {
+                let name = Path::new(&erp.into_owned())
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string();
+                file_map.insert(name, path.to_string_lossy().to_string());
+            }
+            if let Some(edi) = output.edi_file_name {
+                let name = Path::new(&edi.into_owned())
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string();
+                file_map.insert(name, path.to_string_lossy().to_string());
+            }
+        }
+    }
+    info!("Loaded {} Prism process data files", file_map.len());
+    Ok(file_map)
 }
 
 async fn setup_db_pool(env_var: &str) -> Result<Pool<bb8_tiberius::ConnectionManager>> {
@@ -747,7 +796,7 @@ async fn update_order_shipping_remarks(
 async fn process_file(
     input_path: &Path,
     error_path: std::sync::Arc<PathBuf>,
-    output_dir: std::sync::Arc<PathBuf>,
+    archive_dir: std::sync::Arc<PathBuf>,
     sap_pool: std::sync::Arc<Pool<bb8_tiberius::ConnectionManager>>,
     session_id: &str,
     client: std::sync::Arc<ClientWithMiddleware>,
@@ -799,10 +848,10 @@ async fn process_file(
     //             order_data.ship_to_code = Some(address);
 
     //             let file_name = input_path.file_name().ok_or("Invalid file name")?;
-    //             let output_path = output_dir.join(file_name);
+    //             let archive_path = archive_dir.join(file_name);
 
-    //             fs::write(&output_path, serde_json::to_string_pretty(&order_data)?)?;
-    //             println!("Written to: {}", output_path.display());
+    //             fs::write(&archive_path, serde_json::to_string_pretty(&order_data)?)?;
+    //             println!("Written to: {}", archive_path.display());
     //         }
     //         Ok(None) => {
     //             eprintln!("No ShipTo address found for ShipToCode: {}", ship_to_value);
@@ -824,10 +873,10 @@ async fn process_file(
     //             order_data.pay_to_code = Some(address);
 
     //             let file_name = input_path.file_name().ok_or("Invalid file name")?;
-    //             let output_path = output_dir.join(file_name);
+    //             let archive_path = archive_dir.join(file_name);
 
-    //             fs::write(&output_path, serde_json::to_string_pretty(&order_data)?)?;
-    //             println!("Written to: {}", output_path.display());
+    //             fs::write(&archive_path, serde_json::to_string_pretty(&order_data)?)?;
+    //             println!("Written to: {}", archive_path.display());
     //         }
     //         Ok(None) => {
     //             eprintln!("No PayTo address found for PayToCode: {}", pay_to_value);
@@ -866,11 +915,11 @@ async fn process_file(
 
             let file_name = input_path.file_name().ok_or(anyhow!("Invalid file name"))?;
 
-            let output_path = output_dir.join(file_name);
+            let archive_path = archive_dir.join(file_name);
 
-            fs::write(&output_path, serde_json::to_string_pretty(&output)?)?;
+            fs::write(&archive_path, serde_json::to_string_pretty(&output)?)?;
 
-            info!("Written output file: {}", output_path.display());
+            info!("Written archive file: {}", archive_path.display());
         }
 
         Err(e) => {
@@ -889,11 +938,13 @@ async fn process_file(
 
 async fn process_files(
     path: &Path,
-    output_dir: std::sync::Arc<PathBuf>,
+    archive_dir: std::sync::Arc<PathBuf>,
     error_dir: std::sync::Arc<PathBuf>,
     sap_pool: &Arc<Pool<bb8_tiberius::ConnectionManager>>,
     session_id: &Arc<String>,
     client: &Arc<ClientWithMiddleware>,
+    // file_hashmap: &Arc<HashMap<String, String>>,
+    prism_path: &Arc<PathBuf>,
 ) -> Result<(), anyhow::Error> {
     let semaphore = Arc::new(Semaphore::new(THREADS));
     let mut handles = Vec::new();
@@ -922,16 +973,20 @@ async fn process_files(
         let sap_pool = Arc::clone(sap_pool);
         let client = Arc::clone(client);
         let session_id = Arc::clone(session_id);
-        let out_dir = Arc::clone(&output_dir);
+        let archive_dir = Arc::clone(&archive_dir);
         let err_dir = Arc::clone(&error_dir);
+        // let file_hashmap = Arc::clone(file_hashmap);
+        let prism_path = Arc::clone(prism_path);
 
         handles.push(tokio::spawn(async move {
             let _permit = permit;
+            let input_file_name = path.file_name().unwrap().to_string_lossy().to_string();
+            // let prism_file = file_hashmap.get(&input_file_name).cloned();
 
             match process_file(
                 &path,
                 err_dir,
-                out_dir,
+                archive_dir,
                 sap_pool,
                 session_id.as_str(),
                 client,
@@ -940,6 +995,14 @@ async fn process_files(
             {
                 Ok(_) => {
                     info!("Processed file: {}", path.display());
+
+                    // if let Some(prism_file) = &prism_file {
+                    //     let mut prism_dest = PathBuf::from(prism_path.as_ref());
+                    //     prism_dest.push(Path::new(prism_file).file_name().unwrap());
+                    //     if let Err(err) = tokio::fs::rename(prism_file, &prism_dest).await {
+                    //         error!("Failed to move prism file {prism_file}: {err}");
+                    //     }
+                    // }
 
                     match tokio::fs::remove_file(&path).await {
                         Ok(_) => {
@@ -955,7 +1018,47 @@ async fn process_files(
                     };
                     Ok(())
                 }
-                Err(e) => Err(anyhow!("Failed to process {}: {e}", path.display())),
+                Err(e) => {
+                    // if let Some(prism_file) = &prism_file {
+                    //     let contents = match std::fs::read_to_string(prism_file) {
+                    //         Ok(c) => c,
+                    //         Err(err) => {
+                    //             error!("Failed to read prism file {prism_file}: {err}");
+                    //             String::new()
+                    //         }
+                    //     };
+                    //     if !contents.is_empty() {
+                    //         if let Ok(mut process_data) = quick_xml::de::from_str::<Output>(&contents) {
+                    //             process_data.error_type = Some(Cow::Borrowed("ERP"));
+                    //             process_data.agency = Agency::ERROR;
+                    //             process_data.error_description = Some(Cow::from(e.to_string()));
+                    //             process_data.status = Cow::Borrowed("ERROR");
+                    //             process_data.plant_name = Some(Cow::Borrowed("BasicFun"));
+                    //             let mut xml_string = String::new();
+                    //             if let Ok(ser) = quick_xml::se::Serializer::with_root(&mut xml_string, Some("Output")) {
+                    //                 let _ = process_data.serialize(ser);
+                    //             }
+                    //             let mut prism_dest = PathBuf::from(prism_path.as_ref());
+                    //             prism_dest.push(Path::new(prism_file).file_name().unwrap());
+                    //             if let Err(err) = tokio::fs::write(&prism_dest, &xml_string).await {
+                    //                 error!("Failed to write prism error file: {err}");
+                    //             }
+                    //         }
+                    //     }
+                    // }
+
+                    match tokio::fs::remove_file(&path).await {
+                        Ok(_) => {}
+                        Err(err) => {
+                            error!("Failed to remove 945 XML {}: {err}", path.display());
+                            return Err(anyhow!(
+                                "Failed to remove 945 XML {}: {err}",
+                                path.display()
+                            ));
+                        }
+                    };
+                    Err(anyhow!("Failed to process {}: {e}", path.display()))
+                }
             }
         }));
     }
@@ -1016,13 +1119,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .init();
 
     let input_dir = Arc::new(args.input_dir);
-    let output_dir = Arc::new(args.output_dir);
+    let archive_dir = Arc::new(args.archive_dir);
     let error_dir = Arc::new(args.error_dir);
 
     info!("Input:   {}", input_dir.display());
-    info!("Output:  {}", output_dir.display());
+    info!("Archive: {}", archive_dir.display());
     info!("Error:   {}", error_dir.display());
     info!("Logs:    {} ({})", args.logs_dir.display(), log_path.display());
+
+    fs::create_dir_all(&args.prism_path)?;
+    let prism_path = Arc::new(args.prism_path);
+    let process_data_path = args.process_data_path;
+
+    info!("Prism:   {}", prism_path.display());
+    info!("Process Data: {}", process_data_path.display());
+
+    // let file_hashmap = Arc::new(fetch_prism_data(&process_data_path)?);
 
     let sap_pool = Arc::new(setup_db_pool("SAP_DB_CONN").await?);
 
@@ -1057,11 +1169,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Process files in input dir
     process_files(
         input_dir.as_path(),
-        Arc::clone(&output_dir),
+        Arc::clone(&archive_dir),
         Arc::clone(&error_dir),
         &sap_pool,
         &session_id,
         &client,
+        // &file_hashmap,
+        &prism_path,
     )
     .await?;
 
@@ -1070,9 +1184,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-// /Users/noor/Public/Ecom/input_files /Users/noor/Public/Ecom/output_files /Users/noor/Public/Ecom/error_files
-// basic_fun.exe C:/Users/BasicFun/Desktop/test/input/ C:/Users/BasicFun/Desktop/test/output/ C:/Users/BasicFun/Desktop/test/error/
-// basic_fun.exe --input-dir "C:\Users\BasicFun\Desktop\test\input" --output-dir "C:\Users\BasicFun\Desktop\test\output" --error-dir "C:\Users\BasicFun\Desktop\test\error" --logs-dir "C:\Users\BasicFun\Desktop\test\logs"
-
-// 945 path:
-// basic_fun_945.exe --files-pickup-path C:\Users\BasicFun\Desktop\945\input --process-id 1234 --process-data-path C:\Users\BasicFun\Desktop\945\output --prism-path C:\Users\BasicFun\Desktop\945\error
+// /Users/noor/Public/Ecom/input_files /Users/noor/Public/Ecom/archive_files /Users/noor/Public/Ecom/error_files
+// basic_fun.exe C:/Users/BasicFun/Desktop/test/input/ C:/Users/BasicFun/Desktop/test/archive/ C:/Users/BasicFun/Desktop/test/error/
+// basic_fun.exe --input-dir "C:\Users\BasicFun\Desktop\test\input" --archive-dir "C:\Users\BasicFun\Desktop\test\output" --error-dir "C:\Users\BasicFun\Desktop\test\error" --logs-dir "C:\Users\BasicFun\Desktop\test\logs" --prism-path "C:\Users\BasicFun\Desktop\test\output" --process-data-path "C:\Users\BasicFun\Desktop\test\output" -p "12345"

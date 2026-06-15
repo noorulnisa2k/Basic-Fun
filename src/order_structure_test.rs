@@ -107,7 +107,10 @@ pub struct Orders {
     pub u_oq_ref_value: Option<String>,
 
     #[serde(rename = "U_SHIP_INTERSTAT", skip_serializing_if = "Option::is_none")]
-    pub u_ship_interstat: Option<String>
+    pub u_ship_interstat: Option<String>,
+
+    #[serde(rename = "U_ACW_Destination", skip_serializing_if = "Option::is_none")]
+    pub u_acw_destination: Option<Value>,
 
 }
 
