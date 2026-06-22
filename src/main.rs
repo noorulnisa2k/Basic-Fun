@@ -20,13 +20,13 @@ use tracing_subscriber::EnvFilter;
 use bb8::Pool;
 use reqwest_middleware::reqwest::{Client, StatusCode};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
-use reqwest_retry::{RetryTransientMiddleware, Retryable, policies::ExponentialBackoff};
+use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware, Retryable};
 use tiberius::{Row, ToSql};
 use tracing::{debug, error, info};
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 
-use roxmltree_to_serde::{Config, NullValue, xml_str_to_json};
+use roxmltree_to_serde::{xml_str_to_json, Config, NullValue};
 use std::{
     fs::{File, OpenOptions},
     io::Read,
@@ -261,7 +261,7 @@ fn fetch_prism_data(process_data_path: &Path) -> Result<HashMap<String, String>>
 }
 
 async fn setup_db_pool(env_var: &str) -> Result<Pool<bb8_tiberius::ConnectionManager>> {
-    let conn_str = std::env::var(env_var).expect("SAP_DB_CONN must be set");
+    let conn_str = env::var(env_var).expect("SAP_DB_CONN must be set");
     let mgr = bb8_tiberius::ConnectionManager::build(conn_str.as_str())?;
     let pool = bb8::Pool::builder()
         .max_size(THREADS.try_into().unwrap())
@@ -534,7 +534,7 @@ async fn get_token(client: &ClientWithMiddleware) -> Result<Token, Box<dyn Error
         "UserName": username,
     });
 
-    let url = format!("{}/Login", base_url);
+    let url = format!("{}/b1s/v1/Login", base_url);
 
     info!("--- Login Attempt ---");
 
