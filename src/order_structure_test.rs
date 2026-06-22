@@ -198,10 +198,10 @@ pub struct DocumentLine {
     #[serde(rename = "U_ACW_DeliveryEnd", skip_serializing_if = "Option::is_none")]
     pub u_acw_delivery_end: Option<String>,
 
-    #[serde(rename = "U_TBD_Cust_No", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "U_TBD_Cust_No", default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_option_string_from_number")]
     pub u_tbd_cust_no: Option<String>,
 
-    #[serde(rename = "SupplierCatNum", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "SupplierCatNum", default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_option_string_from_number")]
     pub supplier_cat_num: Option<String>,
 
     #[serde(rename = "LineTotal", skip_serializing_if = "Option::is_none")]

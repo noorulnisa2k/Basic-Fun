@@ -25,4 +25,5 @@ hyper = "1.9.0"
 quick-xml = { version = "0.38.4", features = ["serialize"] }
 bytes = "1.11.1"
 tracing-appender = "0.2"
+thiserror = "2"
 

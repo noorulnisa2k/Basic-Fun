@@ -1,4 +1,8 @@
+// prism 856 process main file
+
 mod order_structure;
+mod prism_structure;
+use prism_structure::{Agency, Output};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use quick_xml::se::to_string_with_root;
@@ -9,9 +13,11 @@ use clap::Parser;
 use chrono::{Local, NaiveDateTime};
 use dotenv::dotenv;
 use bytes::Bytes;
+use std::borrow::Cow;
+use std::collections::HashMap;
 use std::env;
 use std::error::Error;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
@@ -32,19 +38,25 @@ const THREADS: usize = 8;
 #[command(version, about, long_about = None)]
 struct Args {
     #[arg(short, long)]
-    dropping_path: PathBuf,
+    output_dir: PathBuf,
 
     #[arg(short, long)]
-    archive_path: PathBuf,
+    archive_dir: PathBuf,
 
     #[arg(short, long)]
     process_id: String,
 
     #[arg(short, long)]
-    error_process_data_path: PathBuf,
+    error_dir: PathBuf,
 
     #[arg(short, long)]
-    log_path: PathBuf,
+    logs_dir: PathBuf,
+
+    #[arg(long)]
+    prism_path: PathBuf,
+
+    #[arg(long)]
+    process_data_path: PathBuf,
 }
 
 
@@ -176,6 +188,42 @@ fn get_source_error_type<T: std::error::Error + 'static>(
 }
 
 
+fn fetch_prism_data(process_data_path: &Path) -> Result<HashMap<String, String>> {
+    let mut file_map = HashMap::new();
+    for entry in std::fs::read_dir(process_data_path)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_file() {
+            let contents = std::fs::read_to_string(&path)?;
+            let output: Output = match quick_xml::de::from_str(&contents) {
+                Ok(o) => o,
+                Err(err) => {
+                    error!("Failed to parse prism data {}: {err}", path.display());
+                    continue;
+                }
+            };
+            if let Some(erp) = output.erp_file_name {
+                let name = Path::new(&erp.into_owned())
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string();
+                file_map.insert(name, path.to_string_lossy().to_string());
+            }
+            if let Some(edi) = output.edi_file_name {
+                let name = Path::new(&edi.into_owned())
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string();
+                file_map.insert(name, path.to_string_lossy().to_string());
+            }
+        }
+    }
+    info!("Loaded {} Prism process data files", file_map.len());
+    Ok(file_map)
+}
+
 #[derive(Deserialize, Debug)]
 struct Token {
     #[serde(rename = "SessionId")]
@@ -198,7 +246,7 @@ async fn get_token(
     let url = format!("{}/Login", base_url);
 
     info!("--- Login Attempt ---");
-
+    info!("Login payload: {}", login_data);
     let response = client
         .post(&url)
         .json(&login_data)
@@ -322,6 +370,10 @@ async fn get_delivery_notes(
     client: &ClientWithMiddleware,
     output_dir: &std::path::Path,
     sap_pool: &Arc<Pool<bb8_tiberius::ConnectionManager>>,
+    prism_path: &Path,
+    _process_id: &str,
+    _company: &str,
+    // file_hashmap: &HashMap<String, String>,
 ) -> Result<Value> {
     let uri = "/DeliveryNotes";
     let query = "$filter=U_945_Advice eq 'Y' AND DocumentStatus eq 'bost_Open'";
@@ -380,8 +432,10 @@ async fn get_delivery_notes(
                 .get("DocNum")
                 .and_then(|value| value.as_i64())
                 .unwrap_or(0);
-            let filename = format!("delivery_notes_{}_{}.xml", now.format("%Y%m%d%H%M%S"), doc_num);
-            let path = output_dir.join(filename);
+            let card_code = order.get("CardCode").and_then(|v| v.as_str()).unwrap_or("Unknown");
+            let filename = format!("{}-856_{}-{}.xml", card_code, doc_num, now.format("%Y%m%d%H%M%S"));
+            // let prism_file = file_hashmap.get(&filename).cloned();
+            let path = output_dir.join(&filename);
                     if let Some(doc_entry) = order.get("DocEntry").and_then(|value| value.as_u64()) {
                 match get_tracking_by_doc_entry(sap_pool, doc_entry).await {
                     Ok(tracking_items) if !tracking_items.is_empty() => {
@@ -411,6 +465,13 @@ async fn get_delivery_notes(
             tokio::fs::write(&path, order_xml).await.map_err(|e| anyhow!("Unable to write XML file: {e}"))?;
             info!("Saved delivery notes XML to {}", path.display());
 
+            // if let Some(ref prism_file) = prism_file {
+            //     let prism_dest = prism_path.join(Path::new(prism_file).file_name().unwrap());
+            //     if let Err(err) = tokio::fs::rename(prism_file, &prism_dest).await {
+            //         error!("Failed to move prism file {prism_file}: {err}");
+            //     }
+            // }
+
             // update status to 'P' for processed orders
             if let Some(doc_entry) = order.get("DocEntry").and_then(|value| value.as_u64()) {
                 let patch_uri = format!("/DeliveryNotes({})", doc_entry);
@@ -429,10 +490,54 @@ async fn get_delivery_notes(
                             info!("Updated U_945_Advice to 'P' for DocEntry {}: {}", doc_entry, body);
                         } else {
                             warn!("Failed to update U_945_Advice for DocEntry {}: status {} body {}", doc_entry, status, body);
+                            // if let Some(ref prism_file) = prism_file {
+                            //     match std::fs::read_to_string(prism_file) {
+                            //         Ok(contents) => {
+                            //             if let Ok(mut process_data) = quick_xml::de::from_str::<Output>(&contents) {
+                            //                 process_data.error_type = Some(Cow::Borrowed("ERP"));
+                            //                 process_data.agency = Agency::ERROR;
+                            //                 process_data.error_description = Some(Cow::from(format!("PATCH failed: status {} body {}", status, body)));
+                            //                 process_data.status = Cow::Borrowed("ERROR");
+                            //                 process_data.plant_name = Some(Cow::Borrowed("BasicFun"));
+                            //                 let mut xml_string = String::new();
+                            //                 if let Ok(ser) = quick_xml::se::Serializer::with_root(&mut xml_string, Some("Output")) {
+                            //                     let _ = process_data.serialize(ser);
+                            //                 }
+                            //                 let prism_dest = prism_path.join(Path::new(prism_file).file_name().unwrap());
+                            //                 if let Err(err) = tokio::fs::write(&prism_dest, &xml_string).await {
+                            //                     error!("Failed to write prism error file: {err}");
+                            //                 }
+                            //             }
+                            //         }
+                            //         Err(err) => error!("Failed to read prism file {prism_file}: {err}"),
+                            //     }
+                            // }
                         }
                     }
                     Err(err) => {
                         warn!("Failed to send PATCH request for DocEntry {}: {}", doc_entry, err);
+                        // if let Some(ref prism_file) = prism_file {
+                        //     match std::fs::read_to_string(prism_file) {
+                        //         Ok(contents) => {
+                        //             if let Ok(mut process_data) = quick_xml::de::from_str::<Output>(&contents) {
+                        //                 process_data.error_type = Some(Cow::Borrowed("ERP"));
+                        //                 process_data.agency = Agency::ERROR;
+                        //                 process_data.error_description = Some(Cow::from(format!("PATCH request failed: {err}")));
+                        //                 process_data.status = Cow::Borrowed("ERROR");
+                        //                 process_data.plant_name = Some(Cow::Borrowed("BasicFun"));
+                        //                 let mut xml_string = String::new();
+                        //                 if let Ok(ser) = quick_xml::se::Serializer::with_root(&mut xml_string, Some("Output")) {
+                        //                     let _ = process_data.serialize(ser);
+                        //                 }
+                        //                 let prism_dest = prism_path.join(Path::new(prism_file).file_name().unwrap());
+                        //                 if let Err(err) = tokio::fs::write(&prism_dest, &xml_string).await {
+                        //                     error!("Failed to write prism error file: {err}");
+                        //                 }
+                        //             }
+                        //         }
+                        //         Err(read_err) => error!("Failed to read prism file {prism_file}: {read_err}"),
+                        //     }
+                        // }
                     }
                 }
             }
@@ -518,8 +623,8 @@ async fn main() -> Result<(), anyhow::Error> {
     let mut args = Args::parse();
 
     // configuring logs
-    tokio::fs::create_dir_all(&args.log_path).await?;
-    let log_file = args.log_path.join(format!("logs856_{}.log", Local::now().format("%Y%m%d_%H%M%S")));
+    tokio::fs::create_dir_all(&args.logs_dir).await?;
+    let log_file = args.logs_dir.join(format!("logs856_{}.log", Local::now().format("%Y%m%d_%H%M%S")));
     let file = std::fs::File::create(&log_file)?;
     let (non_blocking, _guard) = tracing_appender::non_blocking(file);
     tracing_subscriber::fmt()
@@ -528,12 +633,15 @@ async fn main() -> Result<(), anyhow::Error> {
         .with_writer(non_blocking)
         .init();
 
-    let dropping_path = Arc::new(args.dropping_path);
+    let output_dir = Arc::new(args.output_dir);
     let now = Local::now();
-    args.archive_path.push(now.format("%Y/%m/%d").to_string());
-    let pre_archive_path = Arc::new(args.archive_path);
-    let process_id = Arc::new(args.process_id);
-    let error_process_data_path = args.error_process_data_path;
+    args.archive_dir.push(now.format("%Y/%m/%d").to_string());
+    let pre_archive_dir = Arc::new(args.archive_dir);
+    let error_dir = args.error_dir;
+
+    std::fs::create_dir_all(&args.prism_path)?;
+    std::fs::create_dir_all(&args.process_data_path)?;
+    // let file_hashmap = fetch_prism_data(&args.process_data_path)?;
 
     let start = Instant::now();
 
@@ -585,7 +693,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let session_id = Arc::new(["B1SESSION=", token.session_id.as_str()].concat());
 
     // Process delivery notes using DB query
-    let dn_resp = get_delivery_notes(&base_url, &session_id, &*client, &*dropping_path, &sap_pool).await?;
+    let dn_resp = get_delivery_notes(&base_url, &session_id, &*client, &*output_dir, &sap_pool, &args.prism_path, &args.process_id, &company).await?;
     let count = dn_resp.get("value").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
     info!("Retrieved {} delivery notes", count);
 
@@ -595,4 +703,4 @@ async fn main() -> Result<(), anyhow::Error> {
 }
 
 
-// basicfun856.exe --dropping-path "C:\Users\BasicFun\Desktop\856\output" --archive-path "C:\Users\BasicFun\Desktop\856\output" --process-id "1" --error-process-data-path "C:\Users\BasicFun\Desktop\856\error" --log-path "C:\Users\BasicFun\Desktop\856\logs"
+// basicfun856.exe --output-dir "C:\Users\BasicFun\Desktop\856\output" --archive-dir "C:\Users\BasicFun\Desktop\856\output" --process-id "1" --error-dir "C:\Users\BasicFun\Desktop\856\error" --logs-dir "C:\Users\BasicFun\Desktop\856\logs" --prism-path "C:\Users\BasicFun\Desktop\856\output" --process-data-path "C:\Users\BasicFun\Desktop\856\output"

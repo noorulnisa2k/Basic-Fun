@@ -320,9 +320,9 @@ async fn xml_to_json_converter(path: &Path) -> Result<Orders> {
     );
 
     // Deserialize into Orders struct
-    let orders: Orders = serde_json::from_value(json).map_err(|e| {
-        error!("Failed to deserialize Orders from JSON: {e}");
-        anyhow!("Failed to deserialize Orders from JSON: {e}")
+    let orders: Orders = serde_path_to_error::deserialize(json).map_err(|e| {
+        error!("Failed to deserialize Orders from JSON: {} at {}", e.inner(), e.path());
+        anyhow!("Failed to deserialize Orders from JSON: {} at {}", e.inner(), e.path())
     })?;
 
     Ok(orders)

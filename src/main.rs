@@ -20,13 +20,13 @@ use tracing_subscriber::EnvFilter;
 use bb8::Pool;
 use reqwest_middleware::reqwest::{Client, StatusCode};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
-use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware, Retryable};
+use reqwest_retry::{RetryTransientMiddleware, Retryable, policies::ExponentialBackoff};
 use tiberius::{Row, ToSql};
 use tracing::{debug, error, info};
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 
-use roxmltree_to_serde::{xml_str_to_json, Config, NullValue};
+use roxmltree_to_serde::{Config, NullValue, xml_str_to_json};
 use std::{
     fs::{File, OpenOptions},
     io::Read,
@@ -261,7 +261,7 @@ fn fetch_prism_data(process_data_path: &Path) -> Result<HashMap<String, String>>
 }
 
 async fn setup_db_pool(env_var: &str) -> Result<Pool<bb8_tiberius::ConnectionManager>> {
-    let conn_str = env::var(env_var).expect("SAP_DB_CONN must be set");
+    let conn_str = std::env::var(env_var).expect("SAP_DB_CONN must be set");
     let mgr = bb8_tiberius::ConnectionManager::build(conn_str.as_str())?;
     let pool = bb8::Pool::builder()
         .max_size(THREADS.try_into().unwrap())
@@ -367,9 +367,17 @@ async fn xml_to_json_converter(path: &Path) -> Result<Orders> {
     );
 
     // Deserialize into Orders struct
-    let orders: Orders = serde_json::from_value(json).map_err(|e| {
-        error!("Failed to deserialize Orders from JSON: {e}");
-        anyhow!("Failed to deserialize Orders from JSON: {e}")
+    let orders: Orders = serde_path_to_error::deserialize(json).map_err(|e| {
+        error!(
+            "Failed to deserialize Orders from JSON: {} at {}",
+            e.inner(),
+            e.path()
+        );
+        anyhow!(
+            "Failed to deserialize Orders from JSON: {} at {}",
+            e.inner(),
+            e.path()
+        )
     })?;
 
     Ok(orders)
@@ -423,11 +431,11 @@ async fn enrich_order_with_ship_scac(
         .map_err(|err| anyhow!("Failed to parse TrnspName: {err}"))?
         .ok_or_else(|| anyhow!("TrnspName is NULL in the database"))?
         .to_string();
-    // let scac_u: String = row
-    //     .try_get::<&str, _>("U_SCAC")
-    //     .map_err(|err| anyhow!("Failed to parse U_SCAC: {err}"))?
-    //     .ok_or_else(|| anyhow!("U_SCAC is NULL in the database"))?
-    //     .to_string();
+    let scac_u: String = row
+        .try_get::<&str, _>("U_SCAC")
+        .map_err(|err| anyhow!("Failed to parse U_SCAC: {err}"))?
+        .ok_or_else(|| anyhow!("U_SCAC is NULL in the database"))?
+        .to_string();
     let ship_via_acct: String = row
         .try_get::<&str, _>("U_Account_No")
         .map_err(|err| anyhow!("Failed to parse U_Account_No: {err}"))?
@@ -444,6 +452,7 @@ async fn enrich_order_with_ship_scac(
 
     let trnsp_code_str = trnsp_code_i16.to_string();
     order.u_transportation_code = Some(trnsp_code_str.clone());
+    order.u_ship_scac = Some(scac_u);
     order.u_ship_scac = Some(trnsp_code_str);
     order.trnsp_code = Some(trnsp_code_i16.into());
     // order.u_scac = Some(scac_u);
@@ -474,7 +483,6 @@ async fn enrich_order_with_ship_scac(
     Ok(())
 }
 
-
 async fn billing_type_check(
     sap_pool: &Arc<Pool<bb8_tiberius::ConnectionManager>>,
     order: &mut Orders,
@@ -488,10 +496,7 @@ async fn billing_type_check(
             CardCode = @P1
     "#;
 
-    info!(
-        "Query parameters: card_code='{}'",
-        card_code
-    );
+    info!("Query parameters: card_code='{}'", card_code);
     let rows = send_query(sap_pool, query, &[&card_code])
         .await
         .map_err(|e| anyhow!("{e}"))?;
@@ -532,22 +537,30 @@ async fn get_token(client: &ClientWithMiddleware) -> Result<Token, Box<dyn Error
     let url = format!("{}/Login", base_url);
 
     info!("--- Login Attempt ---");
+
+    info!("Login URL: {}", url);
+    info!("Login payload: {}", login_data);
+
     // Send the POST request with login data
     let response = match client.post(url).json(&login_data).send().await {
         Ok(response) => {
             if response.status().is_success() {
                 response
             } else {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
                 error!(
-                    "Failed to get login info, Status Code {}",
-                    response.status(),
+                    "Failed to get login info, Status Code {}. Response body: {}",
+                    status, body,
                 );
-                return Err("Failed to get login token".into());
+                return Err(
+                    format!("Failed to get login token. Status: {status}, Body: {body}").into(),
+                );
             }
         }
         Err(err) => {
-            error!("Failed to get token, {err}");
-            return Err(format!("Failed to get token {err}").into());
+            error!("Failed to get token: {err:#}");
+            return Err(format!("Failed to get token: {err:#}").into());
         }
     };
 
@@ -716,7 +729,7 @@ async fn update_order_shipping_remarks(
             T0."CardCode" = @P1"#;
 
     // let account_query ="SELECT U_BeginWindowDate, U_EndWindowDate FROM ORDR WHERE DocNum = @P1";
-    
+
     let mut query_results = String::new();
 
     info!("Fetching shipping instructions for CardCode: {}", card_code);
@@ -747,7 +760,12 @@ async fn update_order_shipping_remarks(
             // return Err(anyhow!("No shipping instructions found for CardCode: {}", card_code));
         }
     }
-    query_results = format!("{}| Ship Window: {}(Begin) to {}(End)", query_results, begin_window.as_deref().unwrap_or(""), end_window.as_deref().unwrap_or(""));
+    query_results = format!(
+        "{}| Ship Window: {}(Begin) to {}(End)",
+        query_results,
+        begin_window.as_deref().unwrap_or(""),
+        end_window.as_deref().unwrap_or("")
+    );
     info!("{}", query_results);
 
     // match ordr_rows.first(){
@@ -816,12 +834,12 @@ async fn process_file(
             return Err(anyhow!("Failed to convert XML: {}", e));
         }
     };
-    if order_data.card_code.is_empty() {    
+    if order_data.card_code.is_empty() {
         if let Err(err) = billing_type_check(&sap_pool, &mut order_data).await {
-                error!("Failed to enrich order for {}: {err}", input_path.display());
-                let dest = error_path.join(input_path.file_name().ok_or(anyhow!("Invalid file name"))?);
-                let _ = fs::copy(input_path, &dest);
-                return Err(anyhow!("Order billing type check failed: {err}"));
+            error!("Failed to enrich order for {}: {err}", input_path.display());
+            let dest = error_path.join(input_path.file_name().ok_or(anyhow!("Invalid file name"))?);
+            let _ = fs::copy(input_path, &dest);
+            return Err(anyhow!("Order billing type check failed: {err}"));
         }
     }
 
@@ -895,9 +913,15 @@ async fn process_file(
     match create_order(session_id, client.as_ref(), &order_data).await {
         Ok(created) => {
             // Update order with shipping remarks
-            if let Err(err) =
-                update_order_shipping_remarks(&sap_pool, &order_data.card_code, created.doc_num, &order_data.u_begin_window_date, &order_data.u_end_window_date, &order_data.u_ship_via_acct)
-                    .await
+            if let Err(err) = update_order_shipping_remarks(
+                &sap_pool,
+                &order_data.card_code,
+                created.doc_num,
+                &order_data.u_begin_window_date,
+                &order_data.u_end_window_date,
+                &order_data.u_ship_via_acct,
+            )
+            .await
             {
                 error!(
                     "Failed to update shipping remarks for DocNum {}: {err}",
@@ -1125,7 +1149,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     info!("Input:   {}", input_dir.display());
     info!("Archive: {}", archive_dir.display());
     info!("Error:   {}", error_dir.display());
-    info!("Logs:    {} ({})", args.logs_dir.display(), log_path.display());
+    info!(
+        "Logs:    {} ({})",
+        args.logs_dir.display(),
+        log_path.display()
+    );
 
     fs::create_dir_all(&args.prism_path)?;
     let prism_path = Arc::new(args.prism_path);
@@ -1153,7 +1181,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Configure retry policy
     let retry_policy = ExponentialBackoff::builder()
         .retry_bounds(Duration::from_millis(100), Duration::from_secs(30))
-        .build_with_total_retry_duration(Duration::from_secs(2 * 60));
+        .build_with_total_retry_duration(Duration::from_secs(2));
 
     let ret_s =
         RetryTransientMiddleware::new_with_policy_and_strategy(retry_policy, FullRetryableStrategy);
