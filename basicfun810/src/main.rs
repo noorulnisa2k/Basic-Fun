@@ -243,7 +243,7 @@ async fn get_token(
         "UserName": username,
     });
 
-    let url = format!("{}/Login", base_url);
+    let url = format!("{}/b1s/v1/Login", base_url);
 
     info!("--- Login Attempt ---");
 
