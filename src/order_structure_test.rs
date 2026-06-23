@@ -19,7 +19,7 @@ pub struct Orders {
     // #[serde(rename = "CardName")]
     // pub card_name: Option<String>,
 
-    #[serde(rename = "NumAtCard", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "NumAtCard", default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_option_string_from_number")]
     pub num_at_card: Option<String>,
 
     #[serde(rename = "Series", skip_serializing_if = "Option::is_none")]
@@ -210,7 +210,7 @@ pub struct DocumentLine {
     #[serde(rename = "U_TBD_Cust_Dept_No", skip_serializing_if = "Option::is_none")]
     pub u_tbd_cust_dept_no: Option<i64>,
 
-    #[serde(rename = "U_TBD_SO_Ref", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "U_TBD_SO_Ref", default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_option_string_from_number")]
     pub u_tbd_so_ref: Option<String>,
 }
 

@@ -656,7 +656,7 @@ async fn create_order(
     info!("-------- inside create_order --------");
 
     let base_url = env::var("BASE_URL")?;
-    let url = format!("{}/Orders", base_url);
+    let url = format!("{}/b1s/v1/Orders", base_url);
 
     info!("Creating SAP Order");
     info!("URL: {}", url);
