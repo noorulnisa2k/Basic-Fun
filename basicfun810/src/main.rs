@@ -375,7 +375,7 @@ async fn get_invoices(
     _company: &str,
     // file_hashmap: &HashMap<String, String>,
 ) -> Result<Value> {
-    let uri = "/DeliveryNotes";
+    let uri = "/b1s/v1/DeliveryNotes";
     let query = "$filter=U_945_Advice eq 'P' AND DocumentStatus eq 'bost_Open'";
     let url = format!("{base_url}{uri}?{query}");
 
@@ -514,7 +514,7 @@ async fn get_invoices(
                 COOKIE,
                 HeaderValue::from_str(session_id).expect("Failed to create COOKIE header"),
             );
-            let invoices_url = format!("{base_url}/Invoices");
+            let invoices_url = format!("{base_url}/b1s/v1/Invoices");
 
             let body_text = match send_request(client, Method::POST, invoices_url, Bytes::from(post_body), post_headers).await {
                 Ok(post_resp) => {

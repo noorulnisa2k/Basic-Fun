@@ -375,7 +375,7 @@ async fn get_delivery_notes(
     _company: &str,
     // file_hashmap: &HashMap<String, String>,
 ) -> Result<Value> {
-    let uri = "/DeliveryNotes";
+    let uri = "/b1s/v1/DeliveryNotes";
     let query = "$filter=U_945_Advice eq 'Y' AND DocumentStatus eq 'bost_Open'";
     let url = format!("{base_url}{uri}?{query}");
 
@@ -474,7 +474,7 @@ async fn get_delivery_notes(
 
             // update status to 'P' for processed orders
             if let Some(doc_entry) = order.get("DocEntry").and_then(|value| value.as_u64()) {
-                let patch_uri = format!("/DeliveryNotes({})", doc_entry);
+                let patch_uri = format!("/b1s/v1/DeliveryNotes({})", doc_entry);
                 let patch_url = format!("{base_url}{patch_uri}");
                 let patch_body = serde_json::to_vec(&json!({"U_945_Advice": "P"})).map_err(|e| anyhow!("Failed to serialize PATCH body: {e}"))?;
 
