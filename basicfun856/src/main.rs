@@ -645,7 +645,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let start = Instant::now();
 
-    let sap_conn_str = std::env::var("SAP_DB_CONN").expect("DB_CONN not found in env");
+    let sap_conn_str = env::var("SAP_DB_CONN").expect("DB_CONN not found in env");
     let sap_mgr = bb8_tiberius::ConnectionManager::build(sap_conn_str.as_str())?;
     let sap_pool = bb8::Pool::builder()
         .max_size(
