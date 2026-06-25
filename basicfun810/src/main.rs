@@ -620,6 +620,7 @@ async fn get_invoices(
                 .replace("\r ", " ")
                 .replace("\n ", " ")
                 .replace(['\r', '\n'], " ");
+            order_xml.push('\n');
 
             tokio::fs::write(&path, order_xml).await.map_err(|e| anyhow!("Unable to write XML file: {e}"))?;
             info!("Saved invoices XML to {}", path.display());
@@ -720,8 +721,11 @@ async fn main() -> Result<(), anyhow::Error> {
     // configuring logs
     std::fs::create_dir_all(&args.logs_dir)?;
     let now = Local::now();
-    let log_file_name = format!("logs810_{}.log", now.format("%Y%m%d_%H%M%S"));
-    let log_file = std::fs::File::create(args.logs_dir.join(&log_file_name))?;
+    let log_file_name = format!("logs810_{}.log", now.format("%Y%m%d"));
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(args.logs_dir.join(&log_file_name))?;
     let (non_blocking, _guard) = tracing_appender::non_blocking(log_file);
 
     tracing_subscriber::fmt()

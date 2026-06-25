@@ -461,6 +461,7 @@ async fn get_delivery_notes(
                 .replace("\r ", " ")
                 .replace("\n ", " ")
                 .replace(['\r', '\n'], " ");
+            order_xml.push('\n');
 
             tokio::fs::write(&path, order_xml).await.map_err(|e| anyhow!("Unable to write XML file: {e}"))?;
             info!("Saved delivery notes XML to {}", path.display());
@@ -624,8 +625,11 @@ async fn main() -> Result<(), anyhow::Error> {
 
     // configuring logs
     tokio::fs::create_dir_all(&args.logs_dir).await?;
-    let log_file = args.logs_dir.join(format!("logs856_{}.log", Local::now().format("%Y%m%d_%H%M%S")));
-    let file = std::fs::File::create(&log_file)?;
+    let log_file = args.logs_dir.join(format!("logs856_{}.log", Local::now().format("%Y%m%d")));
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_file)?;
     let (non_blocking, _guard) = tracing_appender::non_blocking(file);
     tracing_subscriber::fmt()
         .with_ansi(false)

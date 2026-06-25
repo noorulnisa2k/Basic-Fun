@@ -1033,9 +1033,9 @@ async fn process_files(
                             info!("Removed {}", path.display());
                         }
                         Err(err) => {
-                            error!("Failed to remove 945 XML {}: {err}", path.display());
+                            error!("Failed to remove 850 XML {}: {err}", path.display());
                             return Err(anyhow!(
-                                "Failed to remove 945 XML {}: {err}",
+                                "Failed to remove 850 XML {}: {err}",
                                 path.display()
                             ));
                         }
@@ -1072,11 +1072,13 @@ async fn process_files(
                     // }
 
                     match tokio::fs::remove_file(&path).await {
-                        Ok(_) => {}
+                        Ok(_) => {
+                            info!("Removed {}", path.display());
+                        }
                         Err(err) => {
-                            error!("Failed to remove 945 XML {}: {err}", path.display());
+                            error!("Failed to remove 850 XML {}: {err}", path.display());
                             return Err(anyhow!(
-                                "Failed to remove 945 XML {}: {err}",
+                                "Failed to remove 850 XML {}: {err}",
                                 path.display()
                             ));
                         }
@@ -1125,7 +1127,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     fs::create_dir_all(&args.logs_dir)?;
     let log_path = args.logs_dir.join(format!(
         "logs850_{}.log",
-        chrono::Local::now().format("%Y-%m-%d_%H-%M-%S")
+        chrono::Local::now().format("%Y-%m-%d")
     ));
     let log_file = OpenOptions::new()
         .create(true)

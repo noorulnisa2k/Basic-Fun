@@ -21,7 +21,7 @@ reqwest-middleware = { version = "0.4.2", features = ["json", "rustls-tls"] }
 reqwest-retry = "0.7.0"
 chrono = "0.4"
 serde-xml-rs = "0.5"
-hyper = "1.9.0"
+hyper = "1.10.1"
 quick-xml = { version = "0.38.4", features = ["serialize"] }
 bytes = "1.11.1"
 tracing-appender = "0.2"

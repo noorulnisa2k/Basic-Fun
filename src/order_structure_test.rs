@@ -58,10 +58,10 @@ pub struct Orders {
     #[serde(rename = "U_BillingType", skip_serializing_if = "Option::is_none")]
     pub u_billing_type: Option<String>,
 
-    #[serde(rename = "TransportationCode", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "TransportationCode", default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_option_string_from_number")]
     pub u_transportation_code: Option<String>,
 
-    #[serde(rename = "U_SHIP_SCAC", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "U_SHIP_SCAC", default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_option_string_from_number")]
     pub u_ship_scac: Option<String>,
 
     #[serde(rename = "U_SCAC", skip_serializing_if = "Option::is_none")]
