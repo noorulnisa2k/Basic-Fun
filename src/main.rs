@@ -1148,6 +1148,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let archive_dir = Arc::new(args.archive_dir);
     let error_dir = Arc::new(args.error_dir);
 
+    info!("---------Process ID---------:   {}", args.process_id);
     info!("Input:   {}", input_dir.display());
     info!("Archive: {}", archive_dir.display());
     info!("Error:   {}", error_dir.display());

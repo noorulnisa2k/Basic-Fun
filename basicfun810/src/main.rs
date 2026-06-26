@@ -734,6 +734,7 @@ async fn main() -> Result<(), anyhow::Error> {
         .with_env_filter(EnvFilter::new("info,tiberius=warn"))
         .init();
 
+    info!("---------Process ID---------:   {}", args.process_id);
     let output_dir = Arc::new(args.output_dir);
     let now = Local::now();
     args.archive_dir.push(now.format("%Y/%m/%d").to_string());

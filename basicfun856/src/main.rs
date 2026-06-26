@@ -637,6 +637,7 @@ async fn main() -> Result<(), anyhow::Error> {
         .with_writer(non_blocking)
         .init();
 
+    info!("---------Process ID---------:   {}", args.process_id);
     let output_dir = Arc::new(args.output_dir);
     let now = Local::now();
     args.archive_dir.push(now.format("%Y/%m/%d").to_string());
